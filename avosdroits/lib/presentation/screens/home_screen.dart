@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../widgets/feature_card.dart';
 import '../../core/utils/responsive_helper.dart';
 import '../../core/theme/design_system.dart';
+import 'auth/sign_in_screen.dart';
 
 class HomeScreen extends StatelessWidget {
   const HomeScreen({super.key});
@@ -36,7 +37,12 @@ class HomeScreen extends StatelessWidget {
           IconButton(
             icon: const Icon(Icons.person, color: Colors.white),
             onPressed: () {
-              // TODO: Implement profile
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => const SignInScreen(),
+                ),
+              );
             },
           ),
         ],

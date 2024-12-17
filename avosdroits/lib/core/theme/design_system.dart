@@ -1,32 +1,14 @@
 import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
 
 class DesignSystem {
   // Colors
-  static const Color primaryGreen = Color(0xFF2E7D32);
-  static const Color secondaryGreen = Color(0xFF4CAF50);
-  static const Color accentGold = Color(0xFFFFD700);
-  static const Color neutralGray = Color(0xFFF5F7FA);
-  static const Color darkText = Color(0xFF1A1F36);
-  static const Color lightText = Color(0xFF6B7280);
-
-  // Gradients
-  static const LinearGradient primaryGradient = LinearGradient(
-    begin: Alignment.topLeft,
-    end: Alignment.bottomRight,
-    colors: [
-      Color(0xFF43A047),
-      Color(0xFF2E7D32),
-    ],
-  );
-
-  static const LinearGradient glassGradient = LinearGradient(
-    begin: Alignment.topLeft,
-    end: Alignment.bottomRight,
-    colors: [
-      Color(0x40FFFFFF),
-      Color(0x10FFFFFF),
-    ],
-  );
+  static const primaryGreen = Color(0xFF2E7D32);
+  static const secondaryGreen = Color(0xFF388E3C);
+  static const neutralGray = Color(0xFFF5F5F5);
+  static const darkText = Color(0xFF212121);
+  static const mediumText = Color(0xFF757575);
+  static const lightText = Color(0xFFBDBDBD);
 
   // Shadows
   static List<BoxShadow> get softShadow => [
@@ -45,56 +27,83 @@ class DesignSystem {
         ),
       ];
 
-  // Border Radius
-  static const double radiusSmall = 8.0;
-  static const double radiusMedium = 16.0;
-  static const double radiusLarge = 24.0;
-  static const double radiusExtraLarge = 32.0;
+  // Radius
+  static const double radiusSmall = 4;
+  static const double radiusMedium = 8;
+  static const double radiusLarge = 12;
+  static const double radiusExtraLarge = 24;
 
-  // Spacing
-  static const double spacingXSmall = 4.0;
-  static const double spacingSmall = 8.0;
-  static const double spacingMedium = 16.0;
-  static const double spacingLarge = 24.0;
-  static const double spacingXLarge = 32.0;
-  static const double spacingXXLarge = 48.0;
-
-  // Text Styles
-  static const TextStyle headingLarge = TextStyle(
+  // Typography
+  static final TextStyle headingLarge = GoogleFonts.poppins(
     fontSize: 32,
     fontWeight: FontWeight.bold,
     letterSpacing: -0.5,
     height: 1.2,
   );
 
-  static const TextStyle headingMedium = TextStyle(
+  static final TextStyle headingMedium = GoogleFonts.poppins(
     fontSize: 24,
     fontWeight: FontWeight.w600,
     letterSpacing: -0.3,
     height: 1.3,
   );
 
-  static const TextStyle bodyLarge = TextStyle(
-    fontSize: 16,
-    fontWeight: FontWeight.w400,
-    letterSpacing: 0.1,
+  static final TextStyle headingSmall = GoogleFonts.poppins(
+    fontSize: 20,
+    fontWeight: FontWeight.w600,
+    letterSpacing: -0.2,
+    height: 1.4,
+  );
+
+  static final TextStyle bodyLarge = GoogleFonts.inter(
+    fontSize: 18,
+    fontWeight: FontWeight.normal,
+    letterSpacing: 0,
     height: 1.5,
   );
 
-  // Decorations
-  static BoxDecoration get glassMorphism => BoxDecoration(
-        gradient: glassGradient,
-        borderRadius: BorderRadius.circular(radiusMedium),
-        border: Border.all(
-          color: Colors.white.withOpacity(0.2),
-          width: 1,
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.1),
-            blurRadius: 20,
-            offset: const Offset(0, 8),
-          ),
-        ],
-      );
+  static final TextStyle bodyMedium = GoogleFonts.inter(
+    fontSize: 16,
+    fontWeight: FontWeight.normal,
+    letterSpacing: 0,
+    height: 1.5,
+  );
+
+  static final TextStyle bodySmall = GoogleFonts.inter(
+    fontSize: 14,
+    fontWeight: FontWeight.normal,
+    letterSpacing: 0,
+    height: 1.5,
+  );
+
+  static final TextStyle buttonLarge = GoogleFonts.inter(
+    fontSize: 16,
+    fontWeight: FontWeight.w600,
+    letterSpacing: 0.2,
+    height: 1.4,
+  );
+
+  static final TextStyle buttonMedium = GoogleFonts.inter(
+    fontSize: 14,
+    fontWeight: FontWeight.w600,
+    letterSpacing: 0.2,
+    height: 1.4,
+  );
+
+  // Spacing
+  static const double spacingSmall = 8;
+  static const double spacingMedium = 16;
+  static const double spacingLarge = 24;
+  static const double spacingExtraLarge = 32;
+
+  // Elevation
+  static const double elevationSmall = 2;
+  static const double elevationMedium = 4;
+  static const double elevationLarge = 8;
+  static const double elevationExtraLarge = 16;
+
+  // Border Width
+  static const double borderWidthThin = 1;
+  static const double borderWidthMedium = 2;
+  static const double borderWidthThick = 3;
 } 
