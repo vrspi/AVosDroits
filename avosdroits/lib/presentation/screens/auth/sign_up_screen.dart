@@ -45,7 +45,7 @@ class _SignUpScreenState extends State<SignUpScreen> {
           name: _nameController.text,
           email: _emailController.text,
           password: _passwordController.text,
-          passwordConfirmation: _confirmPasswordController.text,
+          password_confirmation: _confirmPasswordController.text,
         );
 
         // Store token

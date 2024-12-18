@@ -15,6 +15,7 @@ class ApiService {
   Map<String, String> get _headers {
     final headers = {
       'Content-Type': 'application/json',
+      'Accept': 'application/json',
     };
     if (_token != null) {
       headers['Authorization'] = 'Bearer $_token';
@@ -27,18 +28,27 @@ class ApiService {
     required String name,
     required String email,
     required String password,
-    required String passwordConfirmation,
+    required String password_confirmation,
   }) async {
+    final requestBody = {
+      'name': name,
+      'email': email,
+      'password': password,
+      'passwordConfirmation': password_confirmation,
+    };
+    
+    print('Register Request URL: $baseUrl${ApiConfig.register}');
+    print('Register Request Headers: $_headers');
+    print('Register Request Body: ${jsonEncode(requestBody)}');
+    
     final response = await http.post(
       Uri.parse('$baseUrl${ApiConfig.register}'),
       headers: _headers,
-      body: jsonEncode({
-        'name': name,
-        'email': email,
-        'password': password,
-        'passwordConfirmation': passwordConfirmation,
-      }),
+      body: jsonEncode(requestBody),
     );
+
+    print('Register Response Status Code: ${response.statusCode}');
+    print('Register Response Body: ${response.body}');
 
     return _handleResponse(response);
   }
@@ -163,8 +173,19 @@ class ApiService {
     if (response.statusCode >= 200 && response.statusCode < 300) {
       return body;
     } else {
+      String errorMessage;
+      if (body['error'] is Map) {
+        errorMessage = body['error']['message'] ?? 'An error occurred';
+      } else if (body['message'] != null) {
+        errorMessage = body['message'];
+      } else if (body['error'] is String) {
+        errorMessage = body['error'];
+      } else {
+        errorMessage = 'An error occurred';
+      }
+      
       throw ApiException(
-        message: body['error']?['message'] ?? 'An error occurred',
+        message: errorMessage,
         statusCode: response.statusCode,
       );
     }
