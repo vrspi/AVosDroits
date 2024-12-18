@@ -4,7 +4,7 @@ import '../../../core/theme/design_system.dart';
 class SocialAuthButton extends StatelessWidget {
   final IconData icon;
   final String label;
-  final VoidCallback onPressed;
+  final VoidCallback? onPressed;
 
   const SocialAuthButton({
     super.key,
@@ -28,7 +28,9 @@ class SocialAuthButton extends StatelessWidget {
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(DesignSystem.radiusMedium),
           side: BorderSide(
-            color: DesignSystem.mediumText.withOpacity(0.2),
+            color: onPressed == null
+                ? DesignSystem.mediumText.withOpacity(0.1)
+                : DesignSystem.mediumText.withOpacity(0.2),
           ),
         ),
       ),
@@ -38,13 +40,17 @@ class SocialAuthButton extends StatelessWidget {
           Icon(
             icon,
             size: 24,
-            color: DesignSystem.darkText,
+            color: onPressed == null
+                ? DesignSystem.mediumText
+                : DesignSystem.darkText,
           ),
           const SizedBox(width: 12),
           Text(
             label,
             style: DesignSystem.buttonLarge.copyWith(
-              color: DesignSystem.darkText,
+              color: onPressed == null
+                  ? DesignSystem.mediumText
+                  : DesignSystem.darkText,
             ),
           ),
         ],

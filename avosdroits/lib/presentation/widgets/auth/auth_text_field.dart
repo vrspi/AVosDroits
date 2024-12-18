@@ -9,6 +9,7 @@ class AuthTextField extends StatelessWidget {
   final Widget? suffixIcon;
   final TextInputType? keyboardType;
   final String? Function(String?)? validator;
+  final bool enabled;
 
   const AuthTextField({
     super.key,
@@ -19,6 +20,7 @@ class AuthTextField extends StatelessWidget {
     this.suffixIcon,
     this.keyboardType,
     this.validator,
+    this.enabled = true,
   });
 
   @override
@@ -29,7 +31,7 @@ class AuthTextField extends StatelessWidget {
         Text(
           label,
           style: DesignSystem.bodyMedium.copyWith(
-            color: DesignSystem.darkText,
+            color: enabled ? DesignSystem.darkText : DesignSystem.mediumText,
             fontWeight: FontWeight.w500,
           ),
         ),
@@ -39,6 +41,7 @@ class AuthTextField extends StatelessWidget {
           obscureText: obscureText,
           keyboardType: keyboardType,
           validator: validator,
+          enabled: enabled,
           style: DesignSystem.bodyMedium.copyWith(
             color: DesignSystem.darkText,
           ),
@@ -48,7 +51,7 @@ class AuthTextField extends StatelessWidget {
               color: DesignSystem.mediumText.withOpacity(0.5),
             ),
             filled: true,
-            fillColor: Colors.white,
+            fillColor: enabled ? Colors.white : Colors.grey[100],
             suffixIcon: suffixIcon,
             contentPadding: const EdgeInsets.symmetric(
               horizontal: 16,
@@ -82,6 +85,12 @@ class AuthTextField extends StatelessWidget {
               borderRadius: BorderRadius.circular(DesignSystem.radiusMedium),
               borderSide: BorderSide(
                 color: Colors.red.shade400,
+              ),
+            ),
+            disabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(DesignSystem.radiusMedium),
+              borderSide: BorderSide(
+                color: DesignSystem.mediumText.withOpacity(0.1),
               ),
             ),
           ),
