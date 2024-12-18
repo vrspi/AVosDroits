@@ -3,6 +3,7 @@ import '../../../core/theme/design_system.dart';
 import '../../../core/utils/responsive_helper.dart';
 import '../../widgets/auth/auth_text_field.dart';
 import '../../widgets/auth/social_auth_button.dart';
+import '../../screens/questionnaire/questionnaire_screen.dart';
 
 class SignUpScreen extends StatefulWidget {
   const SignUpScreen({super.key});
@@ -261,6 +262,12 @@ class _SignUpScreenState extends State<SignUpScreen> {
                           : () {
                               if (_formKey.currentState!.validate()) {
                                 // TODO: Implement email sign up
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (context) => const QuestionnaireScreen(),
+                                  ),
+                                );
                               }
                             },
                       style: ElevatedButton.styleFrom(
