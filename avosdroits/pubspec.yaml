@@ -1,16 +1,20 @@
 name: avosdroits
 description: A new Flutter project.
 publish_to: 'none'
-version: 0.1.0
+version: 1.0.0+1
 
 environment:
-  sdk: '>=3.1.3 <4.0.0'
+  sdk: '>=3.0.6 <4.0.0'
 
 dependencies:
   flutter:
     sdk: flutter
+  cupertino_icons: ^1.0.2
   google_fonts: ^6.1.0
   http: ^1.1.0
+  provider: ^6.1.1
+  shared_preferences: ^2.2.2
+  flutter_markdown: ^0.6.18
 
 dev_dependencies:
   flutter_test:

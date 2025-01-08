@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+import '../../../core/models/questionnaire.dart';
+import '../../../core/services/api_service.dart';
 import '../../../core/theme/design_system.dart';
 import '../../../core/utils/responsive_helper.dart';
-import '../../widgets/auth/auth_text_field.dart';
+import '../../../core/providers/auth_provider.dart';
 
 class QuestionnaireScreen extends StatefulWidget {
   const QuestionnaireScreen({super.key});
@@ -11,84 +14,303 @@ class QuestionnaireScreen extends StatefulWidget {
 }
 
 class _QuestionnaireScreenState extends State<QuestionnaireScreen> {
-  final PageController _pageController = PageController();
-  int _currentStep = 0;
-  final int _totalSteps = 5;
-
-  // Form keys for each step
-  final List<GlobalKey<FormState>> _formKeys = List.generate(
-    5,
-    (index) => GlobalKey<FormState>(),
-  );
-
-  // Controllers for form fields
-  final _nameController = TextEditingController();
-  final _ageController = TextEditingController();
-  final _nationalityController = TextEditingController();
-  final _birthDateController = TextEditingController();
-  final _addressController = TextEditingController();
-  final _addressDurationController = TextEditingController();
-  final _sectorController = TextEditingController();
-  final _contractTypeController = TextEditingController();
-  final _incomeController = TextEditingController();
-
-  // Dropdown values
-  String? _familyStatus;
-  int? _childrenCount;
-  String? _housingType;
-  String? _employmentStatus;
-  bool? _isPoleEmploiRegistered;
-  bool? _hasHealthIssues;
-  bool? _isDisabled;
-  bool? _isImmigrant;
-  bool? _receivesAid;
-  bool? _hasDebts;
-  bool? _receivesHousingAid;
-  bool? _hasRequestedFamilyAid;
-  bool? _hasOtherIncome;
+  late final ApiService _apiService;
+  List<Section>? _sections;
+  Map<String, String> _answers = {};
+  String? _sessionId;
+  bool _isLoading = true;
+  String? _error;
+  int _currentSectionIndex = 0;
 
   @override
-  void dispose() {
-    _pageController.dispose();
-    _nameController.dispose();
-    _ageController.dispose();
-    _nationalityController.dispose();
-    _birthDateController.dispose();
-    _addressController.dispose();
-    _addressDurationController.dispose();
-    _sectorController.dispose();
-    _contractTypeController.dispose();
-    _incomeController.dispose();
-    super.dispose();
+  void initState() {
+    super.initState();
+    _apiService = ApiService(authProvider: context.read<AuthProvider>());
+    _verifyAuthAndLoadQuestionnaire();
   }
 
-  void _nextStep() {
-    if (_currentStep < _totalSteps - 1) {
-      if (_formKeys[_currentStep].currentState?.validate() ?? false) {
-        _pageController.nextPage(
-          duration: const Duration(milliseconds: 300),
-          curve: Curves.easeInOut,
+  Future<void> _verifyAuthAndLoadQuestionnaire() async {
+    try {
+      setState(() {
+        _isLoading = true;
+        _error = null;
+      });
+
+      // Verify authentication first
+      final isAuthenticated = await _apiService.verifyAuthentication();
+      if (!isAuthenticated) {
+        throw ApiException(
+          message: 'Session expired. Please log in again.',
+          statusCode: 401,
         );
-        setState(() {
-          _currentStep++;
-        });
       }
-    } else {
-      // Submit questionnaire
-      if (_formKeys[_currentStep].currentState?.validate() ?? false) {
-        // TODO: Handle questionnaire submission
+
+      await _loadQuestionnaire();
+    } catch (e) {
+      print('Error in questionnaire initialization: $e');
+      setState(() {
+        _error = e.toString();
+      });
+      
+      // If authentication failed, redirect to login
+      if (e is ApiException && e.statusCode == 401) {
+        if (mounted) {
+          Navigator.pushReplacementNamed(context, '/sign-in');
+        }
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
       }
     }
   }
 
-  void _previousStep() {
-    if (_currentStep > 0) {
-      _pageController.previousPage(
-        duration: const Duration(milliseconds: 300),
-        curve: Curves.easeInOut,
-      );
+  Future<void> _loadQuestionnaire() async {
+    try {
       setState(() {
-        _currentStep--;
+        _isLoading = true;
+        _error = null;
+      });
+
+      final response = await _apiService.getQuestionnaireTemplate();
+      print('Response data: $response');
+
+      if (response['data'] == null) {
+        throw Exception('No data received from the server');
+      }
+
+      final sectionsData = response['data']['sections'];
+      if (sectionsData == null) {
+        throw Exception('No sections found in the response');
+      }
+
+      final sections = (sectionsData as List)
+          .map((s) => Section.fromJson(s as Map<String, dynamic>))
+          .toList()
+        ..sort((a, b) => a.order.compareTo(b.order));
+
+      setState(() {
+        _sections = sections;
+        _sessionId = DateTime.now().millisecondsSinceEpoch.toString(); // Temporary session ID
+      });
+    } catch (e) {
+      print('Error loading questionnaire: $e');
+      setState(() {
+        _error = e.toString();
+      });
+    } finally {
+      setState(() {
+        _isLoading = false;
+      });
+    }
+  }
+
+  Future<void> _saveAnswer(String questionId, String answer) async {
+    setState(() {
+      _answers[questionId] = answer;
+    });
+  }
+
+  Future<void> _submitAnswers() async {
+    try {
+      // Submit all answers for the current section
+      final currentSection = _sections![_currentSectionIndex];
+      for (var question in currentSection.questions) {
+        if (_answers.containsKey(question.id)) {
+          await _apiService.createResponse(
+            questionId: question.id,
+            answer: _answers[question.id]!,
+            sessionId: _sessionId!,
+          );
+        }
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(e.toString()),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
+  Widget _buildQuestionWidget(Question question) {
+    switch (question.type) {
+      case 'select':
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              question.question,
+              style: DesignSystem.headingMedium.copyWith(
+                color: DesignSystem.darkText,
+              ),
+            ),
+            const SizedBox(height: 16),
+            DropdownButtonFormField<String>(
+              value: _answers[question.id],
+              decoration: InputDecoration(
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(DesignSystem.radiusMedium),
+                ),
+              ),
+              items: question.options.map((option) {
+                return DropdownMenuItem<String>(
+                  value: option.value,
+                  child: Text(option.label),
+                );
+              }).toList(),
+              onChanged: (value) {
+                if (value != null) {
+                  _saveAnswer(question.id, value);
+                }
+              },
+            ),
+          ],
+        );
+      
+      case 'boolean':
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              question.question,
+              style: DesignSystem.headingMedium.copyWith(
+                color: DesignSystem.darkText,
+              ),
+            ),
+            const SizedBox(height: 16),
+            Row(
+              children: [
+                Expanded(
+                  child: RadioListTile(
+                    title: const Text('Oui'),
+                    value: 'true',
+                    groupValue: _answers[question.id],
+                    onChanged: (value) {
+                      if (value != null) {
+                        _saveAnswer(question.id, value);
+                      }
+                    },
+                  ),
+                ),
+                Expanded(
+                  child: RadioListTile(
+                    title: const Text('Non'),
+                    value: 'false',
+                    groupValue: _answers[question.id],
+                    onChanged: (value) {
+                      if (value != null) {
+                        _saveAnswer(question.id, value);
+                      }
+                    },
+                  ),
+                ),
+              ],
+            ),
+          ],
+        );
+      
+      case 'number':
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              question.question,
+              style: DesignSystem.headingMedium.copyWith(
+                color: DesignSystem.darkText,
+              ),
+            ),
+            const SizedBox(height: 16),
+            TextFormField(
+              initialValue: _answers[question.id],
+              keyboardType: TextInputType.number,
+              decoration: InputDecoration(
+                hintText: 'Votre réponse',
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(DesignSystem.radiusMedium),
+                ),
+              ),
+              onChanged: (value) {
+                _saveAnswer(question.id, value);
+              },
+            ),
+          ],
+        );
+
+      case 'date':
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              question.question,
+              style: DesignSystem.headingMedium.copyWith(
+                color: DesignSystem.darkText,
+              ),
+            ),
+            const SizedBox(height: 16),
+            TextFormField(
+              initialValue: _answers[question.id],
+              decoration: InputDecoration(
+                hintText: 'JJ/MM/AAAA',
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(DesignSystem.radiusMedium),
+                ),
+              ),
+              onChanged: (value) {
+                _saveAnswer(question.id, value);
+              },
+            ),
+          ],
+        );
+      
+      case 'text':
+      default:
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              question.question,
+              style: DesignSystem.headingMedium.copyWith(
+                color: DesignSystem.darkText,
+              ),
+            ),
+            const SizedBox(height: 16),
+            TextFormField(
+              initialValue: _answers[question.id],
+              decoration: InputDecoration(
+                hintText: 'Votre réponse',
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(DesignSystem.radiusMedium),
+                ),
+              ),
+              onChanged: (value) {
+                _saveAnswer(question.id, value);
+              },
+            ),
+          ],
+        );
+    }
+  }
+
+  void _nextSection() async {
+    if (_currentSectionIndex < (_sections?.length ?? 0) - 1) {
+      // Submit answers before moving to next section
+      await _submitAnswers();
+      setState(() {
+        _currentSectionIndex++;
+      });
+    }
+  }
+
+  void _previousSection() async {
+    if (_currentSectionIndex > 0) {
+      // Submit answers before moving to previous section
+      await _submitAnswers();
+      setState(() {
+        _currentSectionIndex--;
       });
     }
   }
@@ -98,22 +320,61 @@ class _QuestionnaireScreenState extends State<QuestionnaireScreen> {
     final isMobile = ResponsiveHelper.isMobile(context);
     final screenPadding = ResponsiveHelper.getScreenPadding(context);
 
+    if (_isLoading) {
+      return const Scaffold(
+        body: Center(
+          child: CircularProgressIndicator(),
+        ),
+      );
+    }
+
+    if (_error != null) {
+      return Scaffold(
+        body: Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Text(
+                'Une erreur est survenue',
+                style: DesignSystem.headingLarge.copyWith(
+                  color: DesignSystem.darkText,
+                ),
+              ),
+              const SizedBox(height: 16),
+              Text(
+                _error!,
+                style: DesignSystem.bodyLarge.copyWith(
+                  color: DesignSystem.mediumText,
+                ),
+              ),
+              const SizedBox(height: 24),
+              ElevatedButton(
+                onPressed: _loadQuestionnaire,
+                child: const Text('Réessayer'),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    final currentSection = _sections![_currentSectionIndex];
+
     return Scaffold(
       backgroundColor: DesignSystem.neutralGray,
       appBar: AppBar(
         backgroundColor: Colors.transparent,
         elevation: 0,
-        leading: IconButton(
-          icon: Icon(
-            Icons.arrow_back,
+        title: Text(
+          'Questionnaire',
+          style: DesignSystem.headingLarge.copyWith(
             color: DesignSystem.darkText,
+            fontSize: isMobile ? 24 : 32,
           ),
-          onPressed: () => Navigator.pop(context),
         ),
       ),
       body: Column(
         children: [
-          // Progress Indicator
           Padding(
             padding: screenPadding,
             child: Column(
@@ -121,7 +382,7 @@ class _QuestionnaireScreenState extends State<QuestionnaireScreen> {
                 Row(
                   children: [
                     Text(
-                      'Étape ${_currentStep + 1} sur $_totalSteps',
+                      'Étape ${_currentSectionIndex + 1} sur ${_sections!.length}',
                       style: DesignSystem.bodyMedium.copyWith(
                         color: DesignSystem.primaryGreen,
                         fontWeight: FontWeight.w600,
@@ -129,7 +390,7 @@ class _QuestionnaireScreenState extends State<QuestionnaireScreen> {
                     ),
                     const Spacer(),
                     Text(
-                      '${((_currentStep + 1) / _totalSteps * 100).round()}%',
+                      '${(((_currentSectionIndex + 1) / _sections!.length) * 100).round()}%',
                       style: DesignSystem.bodyMedium.copyWith(
                         color: DesignSystem.primaryGreen,
                         fontWeight: FontWeight.w600,
@@ -139,45 +400,46 @@ class _QuestionnaireScreenState extends State<QuestionnaireScreen> {
                 ),
                 const SizedBox(height: 8),
                 LinearProgressIndicator(
-                  value: (_currentStep + 1) / _totalSteps,
+                  value: (_currentSectionIndex + 1) / _sections!.length,
                   backgroundColor: DesignSystem.lightText.withOpacity(0.2),
                   valueColor: AlwaysStoppedAnimation<Color>(
                     DesignSystem.primaryGreen,
                   ),
-                  borderRadius: BorderRadius.circular(DesignSystem.radiusSmall),
                 ),
               ],
             ),
           ),
-          const SizedBox(height: 24),
-          // Questionnaire Content
           Expanded(
-            child: PageView(
-              controller: _pageController,
-              physics: const NeverScrollableScrollPhysics(),
-              children: [
-                // Step 1: Personal Information
-                _buildPersonalInfoStep(screenPadding),
-                // Step 2: Family Status
-                _buildFamilyStatusStep(screenPadding),
-                // Step 3: Housing
-                _buildHousingStep(screenPadding),
-                // Step 4: Employment
-                _buildEmploymentStep(screenPadding),
-                // Step 5: Social Benefits
-                _buildSocialBenefitsStep(screenPadding),
-              ],
+            child: SingleChildScrollView(
+              padding: screenPadding,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Text(
+                    currentSection.title,
+                    style: DesignSystem.headingLarge.copyWith(
+                      color: DesignSystem.darkText,
+                    ),
+                  ),
+                  const SizedBox(height: 32),
+                  ...currentSection.questions
+                      .map((question) => Padding(
+                            padding: const EdgeInsets.only(bottom: 32),
+                            child: _buildQuestionWidget(question),
+                          ))
+                      .toList(),
+                ],
+              ),
             ),
           ),
-          // Navigation Buttons
           Padding(
             padding: screenPadding,
             child: Row(
               children: [
-                if (_currentStep > 0)
+                if (_currentSectionIndex > 0)
                   Expanded(
                     child: OutlinedButton(
-                      onPressed: _previousStep,
+                      onPressed: _previousSection,
                       style: OutlinedButton.styleFrom(
                         padding: const EdgeInsets.symmetric(vertical: 16),
                         side: BorderSide(
@@ -197,10 +459,47 @@ class _QuestionnaireScreenState extends State<QuestionnaireScreen> {
                       ),
                     ),
                   ),
-                if (_currentStep > 0) const SizedBox(width: 16),
+                if (_currentSectionIndex > 0) const SizedBox(width: 16),
                 Expanded(
                   child: ElevatedButton(
-                    onPressed: _nextStep,
+                    onPressed: _currentSectionIndex < _sections!.length - 1
+                        ? _nextSection
+                        : () async {
+                            try {
+                              // Submit answers for the final section
+                              await _submitAnswers();
+                              
+                              // Show success message
+                              if (mounted) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(
+                                    content: Text('Questionnaire soumis avec succès'),
+                                    backgroundColor: Colors.green,
+                                  ),
+                                );
+                                
+                                // Navigate to home screen after a short delay
+                                Future.delayed(const Duration(seconds: 2), () {
+                                  if (mounted) {
+                                    Navigator.pushReplacementNamed(context, '/');
+                                  }
+                                });
+                              }
+                            } catch (e) {
+                              if (mounted) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(
+                                    content: Text(
+                                      e.toString().contains('400')
+                                          ? 'Veuillez répondre à toutes les questions'
+                                          : 'Une erreur est survenue lors de la soumission',
+                                    ),
+                                    backgroundColor: Colors.red,
+                                  ),
+                                );
+                              }
+                            }
+                          },
                     style: ElevatedButton.styleFrom(
                       backgroundColor: DesignSystem.primaryGreen,
                       padding: const EdgeInsets.symmetric(vertical: 16),
@@ -211,7 +510,9 @@ class _QuestionnaireScreenState extends State<QuestionnaireScreen> {
                       ),
                     ),
                     child: Text(
-                      _currentStep == _totalSteps - 1 ? 'Terminer' : 'Suivant',
+                      _currentSectionIndex < _sections!.length - 1
+                          ? 'Suivant'
+                          : 'Terminer',
                       style: DesignSystem.buttonLarge.copyWith(
                         color: Colors.white,
                       ),
@@ -223,466 +524,6 @@ class _QuestionnaireScreenState extends State<QuestionnaireScreen> {
           ),
           SizedBox(height: isMobile ? 16 : 24),
         ],
-      ),
-    );
-  }
-
-  Widget _buildPersonalInfoStep(EdgeInsets padding) {
-    return SingleChildScrollView(
-      padding: padding,
-      child: Form(
-        key: _formKeys[0],
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Informations Personnelles',
-              style: DesignSystem.headingMedium.copyWith(
-                color: DesignSystem.darkText,
-              ),
-            ),
-            const SizedBox(height: 24),
-            AuthTextField(
-              controller: _nameController,
-              label: 'Nom complet',
-              hintText: 'Entrez votre nom complet',
-              validator: (value) {
-                if (value == null || value.isEmpty) {
-                  return 'Veuillez entrer votre nom';
-                }
-                return null;
-              },
-            ),
-            const SizedBox(height: 16),
-            AuthTextField(
-              controller: _ageController,
-              label: 'Âge',
-              hintText: 'Entrez votre âge',
-              keyboardType: TextInputType.number,
-              validator: (value) {
-                if (value == null || value.isEmpty) {
-                  return 'Veuillez entrer votre âge';
-                }
-                if (int.tryParse(value) == null) {
-                  return 'Veuillez entrer un âge valide';
-                }
-                return null;
-              },
-            ),
-            const SizedBox(height: 16),
-            AuthTextField(
-              controller: _nationalityController,
-              label: 'Nationalité',
-              hintText: 'Entrez votre nationalité',
-              validator: (value) {
-                if (value == null || value.isEmpty) {
-                  return 'Veuillez entrer votre nationalité';
-                }
-                return null;
-              },
-            ),
-            const SizedBox(height: 16),
-            AuthTextField(
-              controller: _birthDateController,
-              label: 'Date de naissance',
-              hintText: 'JJ/MM/AAAA',
-              validator: (value) {
-                if (value == null || value.isEmpty) {
-                  return 'Veuillez entrer votre date de naissance';
-                }
-                // TODO: Add date validation
-                return null;
-              },
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildFamilyStatusStep(EdgeInsets padding) {
-    return SingleChildScrollView(
-      padding: padding,
-      child: Form(
-        key: _formKeys[1],
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Situation Familiale',
-              style: DesignSystem.headingMedium.copyWith(
-                color: DesignSystem.darkText,
-              ),
-            ),
-            const SizedBox(height: 24),
-            DropdownButtonFormField<String>(
-              value: _familyStatus,
-              decoration: InputDecoration(
-                labelText: 'Situation familiale',
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(DesignSystem.radiusMedium),
-                ),
-              ),
-              items: [
-                'Célibataire',
-                'Marié(e)',
-                'Pacsé(e)',
-                'Divorcé(e)',
-                'Veuf/Veuve',
-              ].map((String value) {
-                return DropdownMenuItem<String>(
-                  value: value,
-                  child: Text(value),
-                );
-              }).toList(),
-              onChanged: (String? value) {
-                setState(() {
-                  _familyStatus = value;
-                });
-              },
-              validator: (value) {
-                if (value == null || value.isEmpty) {
-                  return 'Veuillez sélectionner votre situation familiale';
-                }
-                return null;
-              },
-            ),
-            const SizedBox(height: 16),
-            DropdownButtonFormField<int>(
-              value: _childrenCount,
-              decoration: InputDecoration(
-                labelText: 'Nombre d\'enfants à charge',
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(DesignSystem.radiusMedium),
-                ),
-              ),
-              items: List.generate(10, (index) {
-                return DropdownMenuItem<int>(
-                  value: index,
-                  child: Text(index.toString()),
-                );
-              }),
-              onChanged: (int? value) {
-                setState(() {
-                  _childrenCount = value;
-                });
-              },
-              validator: (value) {
-                if (value == null) {
-                  return 'Veuillez sélectionner le nombre d\'enfants';
-                }
-                return null;
-              },
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildHousingStep(EdgeInsets padding) {
-    return SingleChildScrollView(
-      padding: padding,
-      child: Form(
-        key: _formKeys[2],
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Logement',
-              style: DesignSystem.headingMedium.copyWith(
-                color: DesignSystem.darkText,
-              ),
-            ),
-            const SizedBox(height: 24),
-            DropdownButtonFormField<String>(
-              value: _housingType,
-              decoration: InputDecoration(
-                labelText: 'Type de logement',
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(DesignSystem.radiusMedium),
-                ),
-              ),
-              items: [
-                'Propriétaire',
-                'Locataire',
-                'Hébergé',
-                'Sans domicile fixe',
-              ].map((String value) {
-                return DropdownMenuItem<String>(
-                  value: value,
-                  child: Text(value),
-                );
-              }).toList(),
-              onChanged: (String? value) {
-                setState(() {
-                  _housingType = value;
-                });
-              },
-              validator: (value) {
-                if (value == null || value.isEmpty) {
-                  return 'Veuillez sélectionner votre type de logement';
-                }
-                return null;
-              },
-            ),
-            const SizedBox(height: 16),
-            AuthTextField(
-              controller: _addressController,
-              label: 'Adresse actuelle',
-              hintText: 'Entrez votre adresse complète',
-              validator: (value) {
-                if (value == null || value.isEmpty) {
-                  return 'Veuillez entrer votre adresse';
-                }
-                return null;
-              },
-            ),
-            const SizedBox(height: 16),
-            AuthTextField(
-              controller: _addressDurationController,
-              label: 'Durée d\'habitation',
-              hintText: 'Depuis combien de temps habitez-vous à cette adresse?',
-              validator: (value) {
-                if (value == null || value.isEmpty) {
-                  return 'Veuillez entrer la durée';
-                }
-                return null;
-              },
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildEmploymentStep(EdgeInsets padding) {
-    return SingleChildScrollView(
-      padding: padding,
-      child: Form(
-        key: _formKeys[3],
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Emploi',
-              style: DesignSystem.headingMedium.copyWith(
-                color: DesignSystem.darkText,
-              ),
-            ),
-            const SizedBox(height: 24),
-            DropdownButtonFormField<String>(
-              value: _employmentStatus,
-              decoration: InputDecoration(
-                labelText: 'Statut d\'emploi',
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(DesignSystem.radiusMedium),
-                ),
-              ),
-              items: [
-                'Employé(e)',
-                'Indépendant(e)',
-                'Sans emploi',
-                'Étudiant(e)',
-                'Retraité(e)',
-              ].map((String value) {
-                return DropdownMenuItem<String>(
-                  value: value,
-                  child: Text(value),
-                );
-              }).toList(),
-              onChanged: (String? value) {
-                setState(() {
-                  _employmentStatus = value;
-                });
-              },
-              validator: (value) {
-                if (value == null || value.isEmpty) {
-                  return 'Veuillez sélectionner votre statut d\'emploi';
-                }
-                return null;
-              },
-            ),
-            const SizedBox(height: 16),
-            AuthTextField(
-              controller: _sectorController,
-              label: 'Secteur d\'activité',
-              hintText: 'Dans quel secteur travaillez-vous?',
-              validator: (value) {
-                if (_employmentStatus == 'Employé(e)' ||
-                    _employmentStatus == 'Indépendant(e)') {
-                  if (value == null || value.isEmpty) {
-                    return 'Veuillez entrer votre secteur d\'activité';
-                  }
-                }
-                return null;
-              },
-            ),
-            const SizedBox(height: 16),
-            AuthTextField(
-              controller: _contractTypeController,
-              label: 'Type de contrat',
-              hintText: 'Quel est votre type de contrat?',
-              validator: (value) {
-                if (_employmentStatus == 'Employé(e)') {
-                  if (value == null || value.isEmpty) {
-                    return 'Veuillez entrer votre type de contrat';
-                  }
-                }
-                return null;
-              },
-            ),
-            const SizedBox(height: 16),
-            AuthTextField(
-              controller: _incomeController,
-              label: 'Revenu mensuel brut',
-              hintText: 'Entrez votre revenu mensuel brut',
-              keyboardType: TextInputType.number,
-              validator: (value) {
-                if (_employmentStatus == 'Employé(e)' ||
-                    _employmentStatus == 'Indépendant(e)') {
-                  if (value == null || value.isEmpty) {
-                    return 'Veuillez entrer votre revenu';
-                  }
-                  if (double.tryParse(value) == null) {
-                    return 'Veuillez entrer un montant valide';
-                  }
-                }
-                return null;
-              },
-            ),
-            const SizedBox(height: 16),
-            SwitchListTile(
-              title: Text(
-                'Inscrit à Pôle Emploi',
-                style: DesignSystem.bodyMedium,
-              ),
-              value: _isPoleEmploiRegistered ?? false,
-              onChanged: (bool value) {
-                setState(() {
-                  _isPoleEmploiRegistered = value;
-                });
-              },
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildSocialBenefitsStep(EdgeInsets padding) {
-    return SingleChildScrollView(
-      padding: padding,
-      child: Form(
-        key: _formKeys[4],
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Situation Sociale',
-              style: DesignSystem.headingMedium.copyWith(
-                color: DesignSystem.darkText,
-              ),
-            ),
-            const SizedBox(height: 24),
-            SwitchListTile(
-              title: Text(
-                'Problèmes de santé nécessitant une assistance',
-                style: DesignSystem.bodyMedium,
-              ),
-              value: _hasHealthIssues ?? false,
-              onChanged: (bool value) {
-                setState(() {
-                  _hasHealthIssues = value;
-                });
-              },
-            ),
-            SwitchListTile(
-              title: Text(
-                'En situation de handicap',
-                style: DesignSystem.bodyMedium,
-              ),
-              value: _isDisabled ?? false,
-              onChanged: (bool value) {
-                setState(() {
-                  _isDisabled = value;
-                });
-              },
-            ),
-            SwitchListTile(
-              title: Text(
-                'Statut d\'immigrant ou réfugié',
-                style: DesignSystem.bodyMedium,
-              ),
-              value: _isImmigrant ?? false,
-              onChanged: (bool value) {
-                setState(() {
-                  _isImmigrant = value;
-                });
-              },
-            ),
-            SwitchListTile(
-              title: Text(
-                'Bénéficiaire d\'allocations ou aides sociales',
-                style: DesignSystem.bodyMedium,
-              ),
-              value: _receivesAid ?? false,
-              onChanged: (bool value) {
-                setState(() {
-                  _receivesAid = value;
-                });
-              },
-            ),
-            SwitchListTile(
-              title: Text(
-                'Dettes ou crédits en cours',
-                style: DesignSystem.bodyMedium,
-              ),
-              value: _hasDebts ?? false,
-              onChanged: (bool value) {
-                setState(() {
-                  _hasDebts = value;
-                });
-              },
-            ),
-            SwitchListTile(
-              title: Text(
-                'Bénéficiaire de l\'aide au logement (APL)',
-                style: DesignSystem.bodyMedium,
-              ),
-              value: _receivesHousingAid ?? false,
-              onChanged: (bool value) {
-                setState(() {
-                  _receivesHousingAid = value;
-                });
-              },
-            ),
-            SwitchListTile(
-              title: Text(
-                'Demande d\'allocations familiales effectuée',
-                style: DesignSystem.bodyMedium,
-              ),
-              value: _hasRequestedFamilyAid ?? false,
-              onChanged: (bool value) {
-                setState(() {
-                  _hasRequestedFamilyAid = value;
-                });
-              },
-            ),
-            SwitchListTile(
-              title: Text(
-                'Autres sources de revenus',
-                style: DesignSystem.bodyMedium,
-              ),
-              value: _hasOtherIncome ?? false,
-              onChanged: (bool value) {
-                setState(() {
-                  _hasOtherIncome = value;
-                });
-              },
-            ),
-          ],
-        ),
       ),
     );
   }

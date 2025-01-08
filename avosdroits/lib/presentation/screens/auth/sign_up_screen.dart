@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import '../../../core/theme/design_system.dart';
 import '../../../core/utils/responsive_helper.dart';
 import '../../../core/services/api_service.dart';
+import '../../../core/providers/auth_provider.dart';
 import '../../widgets/auth/auth_text_field.dart';
 import '../../widgets/auth/social_auth_button.dart';
-import '../questionnaire/questionnaire_screen.dart';
+import '../menu/menu_screen.dart';
 
 class SignUpScreen extends StatefulWidget {
   const SignUpScreen({super.key});
@@ -19,11 +21,17 @@ class _SignUpScreenState extends State<SignUpScreen> {
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
   final _confirmPasswordController = TextEditingController();
-  final _apiService = ApiService();
+  late final ApiService _apiService;
   bool _isPasswordVisible = false;
   bool _isConfirmPasswordVisible = false;
   bool _acceptTerms = false;
   bool _isLoading = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _apiService = ApiService(authProvider: context.read<AuthProvider>());
+  }
 
   @override
   void dispose() {
@@ -41,31 +49,58 @@ class _SignUpScreenState extends State<SignUpScreen> {
       });
 
       try {
-        final response = await _apiService.register(
+        final result = await _apiService.register(
           name: _nameController.text,
           email: _emailController.text,
           password: _passwordController.text,
           password_confirmation: _confirmPasswordController.text,
         );
 
-        // Store token
-        _apiService.setToken(response['data']['accessToken']);
+        // Check if registration was successful
+        if (result['success'] == true && mounted) {
+          // Check if we're authenticated after registration
+          final isAuthenticated = await _apiService.verifyAuthentication();
+          
+          if (!isAuthenticated) {
+            throw ApiException(
+              message: 'Échec de l\'authentification automatique',
+              statusCode: 401,
+            );
+          }
 
-        // Navigate to questionnaire screen
-        if (mounted) {
-          Navigator.pushReplacement(
-            context,
-            MaterialPageRoute(
-              builder: (context) => const QuestionnaireScreen(),
-            ),
+          // Navigate to main screen
+          Navigator.pushReplacementNamed(context, '/main');
+        } else {
+          throw ApiException(
+            message: 'Échec de l\'inscription',
+            statusCode: 400,
           );
         }
       } on ApiException catch (e) {
         if (mounted) {
+          final errorLines = e.message.split('\n');
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text(e.message),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Erreur d\'inscription:',
+                    style: const TextStyle(
+                      fontWeight: FontWeight.bold,
+                      color: Colors.white,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  ...errorLines.map((line) => Text(
+                    line.replaceAll("PasswordConfirmation", "Confirmation du mot de passe"),
+                    style: const TextStyle(color: Colors.white),
+                  )),
+                ],
+              ),
               backgroundColor: Colors.red,
+              duration: const Duration(seconds: 5),
             ),
           );
         }
@@ -93,15 +128,12 @@ class _SignUpScreenState extends State<SignUpScreen> {
         accessToken: accessToken,
       );
 
-      // Store token
-      _apiService.setToken(response['data']['accessToken']);
-
-      // Navigate to questionnaire screen
+      // Navigate to menu screen
       if (mounted) {
         Navigator.pushReplacement(
           context,
           MaterialPageRoute(
-            builder: (context) => const QuestionnaireScreen(),
+            builder: (context) => const MenuScreen(),
           ),
         );
       }

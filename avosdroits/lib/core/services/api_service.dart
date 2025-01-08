@@ -1,26 +1,68 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import '../config/api_config.dart';
+import '../providers/auth_provider.dart';
 
 class ApiService {
   final String baseUrl = ApiConfig.baseUrl;
-  String? _token;
+  final AuthProvider authProvider;
 
-  // Set token after login/registration
-  void setToken(String token) {
-    _token = token;
-  }
+  ApiService({required this.authProvider});
 
-  // Headers for authenticated requests
-  Map<String, String> get _headers {
+  Future<Map<String, dynamic>> _makeRequest(String method, String endpoint, {Map<String, dynamic>? body}) async {
     final headers = {
       'Content-Type': 'application/json',
       'Accept': 'application/json',
     };
-    if (_token != null) {
-      headers['Authorization'] = 'Bearer $_token';
+
+    final token = await authProvider.getToken();
+    if (token != null) {
+      headers['Authorization'] = 'Bearer $token';
+      print('Token is present: $token');
     }
-    return headers;
+
+    final uri = Uri.parse('$baseUrl$endpoint');
+    http.Response response;
+
+    try {
+      switch (method.toUpperCase()) {
+        case 'GET':
+          response = await http.get(uri, headers: headers);
+          break;
+        case 'POST':
+          response = await http.post(
+            uri,
+            headers: headers,
+            body: body != null ? jsonEncode(body) : null,
+          );
+          break;
+        case 'PUT':
+          response = await http.put(
+            uri,
+            headers: headers,
+            body: body != null ? jsonEncode(body) : null,
+          );
+          break;
+        case 'DELETE':
+          response = await http.delete(uri, headers: headers);
+          break;
+        default:
+          throw ApiException(
+            message: 'Method $method not supported',
+            statusCode: 500,
+          );
+      }
+
+      return _handleResponse(response);
+    } catch (e) {
+      if (e is ApiException) {
+        rethrow;
+      }
+      throw ApiException(
+        message: 'Une erreur réseau s\'est produite: ${e.toString()}',
+        statusCode: 500,
+      );
+    }
   }
 
   // Auth Methods
@@ -30,122 +72,146 @@ class ApiService {
     required String password,
     required String password_confirmation,
   }) async {
-    final requestBody = {
-      'name': name,
-      'email': email,
-      'password': password,
-      'passwordConfirmation': password_confirmation,
-    };
-    
-    print('Register Request URL: $baseUrl${ApiConfig.register}');
-    print('Register Request Headers: $_headers');
-    print('Register Request Body: ${jsonEncode(requestBody)}');
-    
-    final response = await http.post(
-      Uri.parse('$baseUrl${ApiConfig.register}'),
-      headers: _headers,
-      body: jsonEncode(requestBody),
+    final result = await _makeRequest(
+      'POST',
+      ApiConfig.register,
+      body: {
+        'name': name,
+        'email': email,
+        'password': password,
+        'password_confirmation': password_confirmation,
+      },
     );
 
-    print('Register Response Status Code: ${response.statusCode}');
-    print('Register Response Body: ${response.body}');
+    if (result['success'] == true) {
+      await authProvider.setAuthenticationStatus(
+        true,
+        token: result['data']['accessToken'],
+        userId: result['data']['userId'],
+      );
+    }
 
-    return _handleResponse(response);
+    return result;
   }
 
   Future<Map<String, dynamic>> login({
     required String email,
     required String password,
   }) async {
-    final response = await http.post(
-      Uri.parse('$baseUrl${ApiConfig.login}'),
-      headers: _headers,
-      body: jsonEncode({
-        'email': email,
-        'password': password,
-      }),
-    );
+    try {
+      final loginResult = await _makeRequest(
+        'POST',
+        ApiConfig.login,
+        body: {
+          'email': email,
+          'password': password,
+        },
+      );
 
-    return _handleResponse(response);
+      if (loginResult['success'] == true) {
+        await authProvider.setAuthenticationStatus(
+          true,
+          token: loginResult['data']['accessToken'],
+          userId: loginResult['data']['userId'],
+        );
+      }
+
+      return loginResult;
+    } catch (e) {
+      rethrow;
+    }
   }
 
   Future<Map<String, dynamic>> socialLogin({
     required String provider,
     required String accessToken,
   }) async {
-    final response = await http.post(
-      Uri.parse('$baseUrl${ApiConfig.socialLogin}'),
-      headers: _headers,
-      body: jsonEncode({
+    final result = await _makeRequest(
+      'POST',
+      ApiConfig.socialLogin,
+      body: {
         'provider': provider,
         'accessToken': accessToken,
-      }),
+      },
     );
 
-    return _handleResponse(response);
+    if (result['success'] == true) {
+      await authProvider.setAuthenticationStatus(
+        true,
+        token: result['data']['accessToken'],
+        userId: result['data']['userId'],
+      );
+    }
+
+    return result;
   }
 
   Future<Map<String, dynamic>> forgotPassword({
     required String email,
   }) async {
-    final response = await http.post(
-      Uri.parse('$baseUrl${ApiConfig.forgotPassword}'),
-      headers: _headers,
-      body: jsonEncode({
-        'email': email,
-      }),
+    return _makeRequest(
+      'POST',
+      ApiConfig.forgotPassword,
+      body: {'email': email},
     );
-
-    return _handleResponse(response);
   }
 
   // Questionnaire Methods
-  Future<Map<String, dynamic>> getQuestionnaire() async {
-    final response = await http.get(
-      Uri.parse('$baseUrl${ApiConfig.getQuestionnaire}'),
-      headers: _headers,
-    );
-
-    return _handleResponse(response);
+  Future<Map<String, dynamic>> getQuestionnaireTemplate() async {
+    print('Fetching questionnaire template...');
+    return _makeRequest('GET', ApiConfig.questionnaireTemplate);
   }
 
-  Future<Map<String, dynamic>> submitQuestionnaire({
-    required List<Map<String, dynamic>> sections,
+  Future<Map<String, dynamic>> createResponse({
+    required String questionId,
+    required String answer,
+    required String sessionId,
   }) async {
-    final response = await http.post(
-      Uri.parse('$baseUrl${ApiConfig.submitQuestionnaire}'),
-      headers: _headers,
-      body: jsonEncode({
-        'sections': sections,
-      }),
+    return _makeRequest(
+      'POST',
+      ApiConfig.questionnaireResponses,
+      body: {
+        'questionId': questionId,
+        'answer': answer,
+        'sessionId': sessionId,
+      },
     );
-
-    return _handleResponse(response);
   }
 
-  Future<Map<String, dynamic>> updateQuestionnaire({
-    required String userId,
-    required List<Map<String, dynamic>> sections,
+  Future<Map<String, dynamic>> updateResponse({
+    required String responseId,
+    required String answer,
+    required String sessionId,
   }) async {
-    final response = await http.put(
-      Uri.parse('$baseUrl${ApiConfig.updateQuestionnaire(userId)}'),
-      headers: _headers,
-      body: jsonEncode({
-        'sections': sections,
-      }),
+    return _makeRequest(
+      'PUT',
+      ApiConfig.questionnaireResponse(responseId),
+      body: {
+        'answer': answer,
+        'sessionId': sessionId,
+      },
     );
+  }
 
-    return _handleResponse(response);
+  Future<void> deleteResponse(String responseId) async {
+    await _makeRequest('DELETE', ApiConfig.questionnaireResponse(responseId));
+  }
+
+  Future<Map<String, dynamic>> getResponse(String responseId) async {
+    return _makeRequest('GET', ApiConfig.questionnaireResponse(responseId));
+  }
+
+  Future<Map<String, dynamic>> getMyResponses() async {
+    return _makeRequest('GET', ApiConfig.myResponses);
+  }
+
+  Future<Map<String, dynamic>> getMyQuestionnaire() async {
+    return _makeRequest('GET', ApiConfig.myQuestionnaire);
   }
 
   // User Profile Methods
   Future<Map<String, dynamic>> getUserProfile() async {
-    final response = await http.get(
-      Uri.parse('$baseUrl${ApiConfig.userProfile}'),
-      headers: _headers,
-    );
-
-    return _handleResponse(response);
+    return _makeRequest('GET', ApiConfig.userProfile);
   }
 
   Future<Map<String, dynamic>> updateUserProfile({
@@ -153,35 +219,59 @@ class ApiService {
     String? phone,
     String? address,
   }) async {
-    final response = await http.put(
-      Uri.parse('$baseUrl${ApiConfig.userProfile}'),
-      headers: _headers,
-      body: jsonEncode({
-        if (name != null) 'name': name,
-        if (phone != null) 'phone': phone,
-        if (address != null) 'address': address,
-      }),
-    );
+    final body = <String, dynamic>{};
+    if (name != null) body['name'] = name;
+    if (phone != null) body['phone'] = phone;
+    if (address != null) body['address'] = address;
 
-    return _handleResponse(response);
+    return _makeRequest('PUT', ApiConfig.userProfile, body: body);
+  }
+
+  // Verify authentication status
+  Future<bool> verifyAuthentication() async {
+    try {
+      final token = await authProvider.getToken();
+      if (token == null) return false;
+
+      final response = await _makeRequest('GET', ApiConfig.userProfile);
+      return response['success'] == true;
+    } catch (e) {
+      print('Authentication verification failed: $e');
+      return false;
+    }
   }
 
   // Helper method to handle API responses
   Map<String, dynamic> _handleResponse(http.Response response) {
-    final body = jsonDecode(response.body);
+    final body = jsonDecode(response.body) as Map<String, dynamic>;
     
     if (response.statusCode >= 200 && response.statusCode < 300) {
       return body;
     } else {
       String errorMessage;
-      if (body['error'] is Map) {
-        errorMessage = body['error']['message'] ?? 'An error occurred';
+      
+      if (body['errors'] != null && body['errors'] is Map) {
+        // Handle validation errors
+        final errors = body['errors'] as Map<String, dynamic>;
+        final errorMessages = <String>[];
+        
+        errors.forEach((key, value) {
+          if (value is List) {
+            errorMessages.addAll(value.cast<String>());
+          } else if (value is String) {
+            errorMessages.add(value);
+          }
+        });
+        
+        errorMessage = errorMessages.join('\n');
+      } else if (body['error'] is Map) {
+        errorMessage = body['error']['message'] ?? 'Une erreur est survenue';
       } else if (body['message'] != null) {
         errorMessage = body['message'];
       } else if (body['error'] is String) {
         errorMessage = body['error'];
       } else {
-        errorMessage = 'An error occurred';
+        errorMessage = 'Une erreur est survenue';
       }
       
       throw ApiException(
@@ -189,6 +279,10 @@ class ApiService {
         statusCode: response.statusCode,
       );
     }
+  }
+
+  Future<void> logout() async {
+    await authProvider.logout();
   }
 }
 

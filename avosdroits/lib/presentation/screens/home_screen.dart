@@ -1,11 +1,35 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import '../widgets/feature_card.dart';
 import '../../core/utils/responsive_helper.dart';
 import '../../core/theme/design_system.dart';
-import 'auth/sign_in_screen.dart';
+import '../../core/providers/auth_provider.dart';
+import '../../core/services/api_service.dart';
 
-class HomeScreen extends StatelessWidget {
+class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
+
+  @override
+  State<HomeScreen> createState() => _HomeScreenState();
+}
+
+class _HomeScreenState extends State<HomeScreen> {
+  late final ApiService _apiService;
+  late final AuthProvider _authProvider;
+
+  @override
+  void initState() {
+    super.initState();
+    _authProvider = context.read<AuthProvider>();
+    _apiService = ApiService(authProvider: _authProvider);
+  }
+
+  void _handleLogout() {
+    final authProvider = context.read<AuthProvider>();
+    final apiService = ApiService(authProvider: authProvider);
+    authProvider.logout();
+    apiService.logout();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -28,23 +52,27 @@ class HomeScreen extends StatelessWidget {
         backgroundColor: Colors.transparent,
         elevation: 0,
         actions: [
-          IconButton(
-            icon: const Icon(Icons.language, color: Colors.white),
-            onPressed: () {
-              // TODO: Implement language selection
-            },
-          ),
-          IconButton(
-            icon: const Icon(Icons.person, color: Colors.white),
-            onPressed: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (context) => const SignInScreen(),
-                ),
-              );
-            },
-          ),
+          if (_authProvider.isAuthenticated) ...[
+            IconButton(
+              icon: const Icon(Icons.person),
+              color: DesignSystem.primaryGreen,
+              onPressed: () {
+                Navigator.pushNamed(context, '/profile');
+              },
+            ),
+            IconButton(
+              icon: const Icon(Icons.logout),
+              color: DesignSystem.primaryGreen,
+              onPressed: _handleLogout,
+            ),
+          ] else
+            IconButton(
+              icon: const Icon(Icons.login),
+              color: DesignSystem.primaryGreen,
+              onPressed: () {
+                Navigator.pushNamed(context, '/sign-in');
+              },
+            ),
         ],
       ),
       body: Stack(

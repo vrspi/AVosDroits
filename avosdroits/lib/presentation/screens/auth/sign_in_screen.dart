@@ -1,10 +1,13 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import '../../../core/theme/design_system.dart';
 import '../../../core/utils/responsive_helper.dart';
 import '../../../core/services/api_service.dart';
+import '../../../core/providers/auth_provider.dart';
 import '../../widgets/auth/auth_text_field.dart';
 import '../../widgets/auth/social_auth_button.dart';
 import 'sign_up_screen.dart';
+import '../menu/menu_screen.dart';
 
 class SignInScreen extends StatefulWidget {
   const SignInScreen({super.key});
@@ -17,9 +20,15 @@ class _SignInScreenState extends State<SignInScreen> {
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
   final _formKey = GlobalKey<FormState>();
-  final _apiService = ApiService();
+  late final ApiService _apiService;
   bool _isPasswordVisible = false;
   bool _isLoading = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _apiService = ApiService(authProvider: context.read<AuthProvider>());
+  }
 
   @override
   void dispose() {
@@ -35,21 +44,14 @@ class _SignInScreenState extends State<SignInScreen> {
       });
 
       try {
-        final response = await _apiService.login(
+        await _apiService.login(
           email: _emailController.text,
           password: _passwordController.text,
         );
 
-        // Store token
-        _apiService.setToken(response['data']['accessToken']);
-
         // Navigate to home screen and remove all previous routes
         if (mounted) {
-          Navigator.pushNamedAndRemoveUntil(
-            context,
-            '/',
-            (route) => false,
-          );
+          Navigator.pushReplacementNamed(context, '/main');
         }
       } on ApiException catch (e) {
         if (mounted) {
@@ -84,16 +86,9 @@ class _SignInScreenState extends State<SignInScreen> {
         accessToken: accessToken,
       );
 
-      // Store token
-      _apiService.setToken(response['data']['accessToken']);
-
       // Navigate to home screen and remove all previous routes
       if (mounted) {
-        Navigator.pushNamedAndRemoveUntil(
-          context,
-          '/',
-          (route) => false,
-        );
+        Navigator.pushReplacementNamed(context, '/main');
       }
     } on ApiException catch (e) {
       if (mounted) {
