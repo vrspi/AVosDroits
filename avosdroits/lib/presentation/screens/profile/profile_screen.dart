@@ -29,7 +29,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
   @override
   void initState() {
     super.initState();
-    _apiService = ApiService(authProvider: context.read<AuthProvider>());
+    _apiService = ApiService.instance;
     _loadProfile();
   }
 

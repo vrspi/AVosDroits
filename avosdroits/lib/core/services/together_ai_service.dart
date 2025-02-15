@@ -1,43 +1,140 @@
 import 'dart:convert';
-import 'package:http/http.dart' as http;
+import 'dart:io';
+import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import '../config/api_config.dart';
 import '../providers/auth_provider.dart';
+import 'api_service.dart';
+
+class ChatMessage {
+  final String role;  // 'user', 'assistant', or 'system'
+  final String content;
+  final DateTime timestamp;
+
+  ChatMessage({
+    required this.role,
+    required this.content,
+    required this.timestamp,
+  });
+
+  Map<String, dynamic> toJson() => {
+    'role': role,
+    'content': content,
+    'timestamp': timestamp.toIso8601String(),
+  };
+}
 
 class TogetherAIService {
   final AuthProvider _authProvider;
+  static TogetherAIService? _instance;
+  final List<ChatMessage> _messageHistory = [];
+  String? _systemContext;
 
-  TogetherAIService({required AuthProvider authProvider}) : _authProvider = authProvider;
+  TogetherAIService._({required AuthProvider authProvider}) : _authProvider = authProvider;
+
+  static TogetherAIService get instance {
+    if (_instance == null) {
+      throw Exception('TogetherAIService not initialized. Call TogetherAIService.initialize() first.');
+    }
+    return _instance!;
+  }
+
+  static void initialize({required AuthProvider authProvider}) {
+    _instance = TogetherAIService._(authProvider: authProvider);
+  }
+
+  List<ChatMessage> get messageHistory => List.unmodifiable(_messageHistory);
+
+  void clearHistory() {
+    _messageHistory.clear();
+    _systemContext = null;
+  }
+
+  String _getNetworkErrorMessage() {
+    if (kIsWeb) {
+      return 'Impossible de se connecter au serveur. Veuillez vérifier que:\n'
+             '1. Le serveur est en cours d\'exécution\n'
+             '2. L\'adresse du serveur est correcte (${ApiConfig.baseUrl})\n'
+             '3. Votre connexion Internet est active\n\n'
+             'Note: Si vous utilisez HTTPS, assurez-vous que le certificat est valide.\n'
+             'Si le problème persiste, contactez le support technique.';
+    } else {
+      return 'Impossible de se connecter au serveur. Veuillez vérifier que:\n'
+             '1. Votre appareil est connecté au même réseau que le serveur\n'
+             '2. Le serveur est en cours d\'exécution\n'
+             '3. L\'adresse IP du serveur est correcte (${ApiConfig.baseUrl})\n\n'
+             'Si le problème persiste, contactez le support technique.';
+    }
+  }
 
   Future<String> getChatResponse(String userMessage) async {
     try {
-      final token = await _authProvider.getToken();
-      final url = '${ApiConfig.baseUrl}${ApiConfig.chatbot}';
-      print('Making request to: $url');
-      
-      final response = await http.post(
-        Uri.parse(url),
-        headers: {
-          'Authorization': 'Bearer $token',
-          'Content-Type': 'application/json',
-        },
-        body: jsonEncode({
+      // Add user message to history
+      _messageHistory.add(ChatMessage(
+        role: 'user',
+        content: userMessage,
+        timestamp: DateTime.now(),
+      ));
+
+      final response = await ApiService.instance.dio.post(
+        '/Chatbot/chat',
+        data: {
           'message': userMessage,
-        }),
+          'history': _messageHistory.map((msg) => msg.toJson()).toList(),
+          'systemContext': _systemContext,
+        },
+        options: Options(
+          validateStatus: (status) => status != null && status < 500,
+          sendTimeout: const Duration(seconds: 30),
+          receiveTimeout: const Duration(seconds: 30),
+        ),
       );
 
-      print('Response status code: ${response.statusCode}');
-      print('Response body: ${response.body}');
+      if (response.statusCode == 200 && response.data['success'] == true) {
+        final data = response.data;
+        final assistantMessage = data['response'] as String;
+        
+        // Update system context if provided
+        if (data['systemContext'] != null) {
+          _systemContext = data['systemContext'] as String;
+          print('Updated system context: $_systemContext'); // Debug log
+        }
 
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        return data['response'];
+        // Add assistant response to history
+        _messageHistory.add(ChatMessage(
+          role: 'assistant',
+          content: assistantMessage,
+          timestamp: DateTime.now(),
+        ));
+
+        print('Full response message: $assistantMessage'); // Debug log
+        return assistantMessage;
       } else {
-        print('Error response: ${response.body}');
-        throw Exception('Erreur de l\'API: ${response.statusCode} - ${response.body}');
+        print('Error response: ${response.data}');
+        throw Exception('Erreur de l\'API: ${response.statusCode} - ${response.data}');
       }
+    } on DioException catch (e) {
+      print('DioException caught: $e');
+      if (e.type == DioExceptionType.connectionError) {
+        throw Exception(_getNetworkErrorMessage());
+      }
+      throw Exception('Une erreur réseau s\'est produite: ${e.message}');
     } catch (e) {
       print('Exception caught: $e');
       throw Exception('Une erreur inattendue s\'est produite: $e');
     }
   }
+
+  // Helper method to add system messages or context
+  void addSystemContext(String context) {
+    _systemContext = context;
+    _messageHistory.add(ChatMessage(
+      role: 'system',
+      content: context,
+      timestamp: DateTime.now(),
+    ));
+  }
+
+  // Get the current system context
+  String? get systemContext => _systemContext;
 } 

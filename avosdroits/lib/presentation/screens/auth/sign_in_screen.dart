@@ -17,8 +17,8 @@ class SignInScreen extends StatefulWidget {
 }
 
 class _SignInScreenState extends State<SignInScreen> {
-  final _emailController = TextEditingController();
-  final _passwordController = TextEditingController();
+  late final TextEditingController _emailController;
+  late final TextEditingController _passwordController;
   final _formKey = GlobalKey<FormState>();
   late final ApiService _apiService;
   bool _isPasswordVisible = false;
@@ -27,7 +27,9 @@ class _SignInScreenState extends State<SignInScreen> {
   @override
   void initState() {
     super.initState();
-    _apiService = ApiService(authProvider: context.read<AuthProvider>());
+    _emailController = TextEditingController();
+    _passwordController = TextEditingController();
+    _apiService = ApiService.instance;
   }
 
   @override

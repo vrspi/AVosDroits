@@ -15,6 +15,8 @@ public class ApplicationDbContext : DbContext
     public DbSet<QuestionnaireResponse> QuestionnaireResponses { get; set; } = null!;
     public DbSet<QuestionnaireQuestion> QuestionnaireQuestions { get; set; } = null!;
     public DbSet<QuestionOption> QuestionOptions { get; set; } = null!;
+    public DbSet<UserFolder> UserFolders { get; set; } = null!;
+    public DbSet<Document> Documents { get; set; } = null!;
 
     protected override void OnModelCreating(ModelBuilder builder)
     {
@@ -73,6 +75,30 @@ public class ApplicationDbContext : DbContext
         {
             entity.HasKey(o => o.Id);
             entity.Property(o => o.Id).UseIdentityColumn();
+        });
+
+        builder.Entity<UserFolder>(entity =>
+        {
+            entity.HasKey(f => f.Id);
+            entity.Property(f => f.Id).UseIdentityColumn();
+            entity.HasOne(f => f.User)
+                .WithMany()
+                .HasForeignKey(f => f.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
+            entity.Property(e => e.CreatedAt).HasDefaultValueSql("GETUTCDATE()");
+        });
+
+        builder.Entity<Document>(entity =>
+        {
+            entity.HasKey(d => d.Id);
+            entity.HasOne(d => d.User)
+                .WithMany()
+                .HasForeignKey(d => d.UserId)
+                .OnDelete(DeleteBehavior.NoAction);
+            entity.HasOne(d => d.Folder)
+                .WithMany(f => f.Documents)
+                .HasForeignKey(d => d.FolderId)
+                .OnDelete(DeleteBehavior.SetNull);
         });
     }
 } 

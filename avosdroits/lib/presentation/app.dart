@@ -6,6 +6,7 @@ import 'screens/auth/sign_up_screen.dart';
 import 'screens/questionnaire/questionnaire_screen.dart';
 import 'screens/profile/profile_screen.dart';
 import 'screens/main/main_screen.dart';
+import 'screens/document/document_screen.dart';
 
 class App extends StatelessWidget {
   const App({super.key});
@@ -24,6 +25,7 @@ class App extends StatelessWidget {
         '/main': (context) => const MainScreen(),
         '/questionnaire': (context) => const QuestionnaireScreen(),
         '/profile': (context) => const ProfileScreen(),
+        '/documents': (context) => const DocumentScreen(),
       },
       onUnknownRoute: (settings) {
         return MaterialPageRoute(

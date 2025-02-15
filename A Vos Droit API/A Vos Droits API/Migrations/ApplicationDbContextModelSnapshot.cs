@@ -22,6 +22,51 @@ namespace AVosDroitsAPI.Migrations
 
             SqlServerModelBuilderExtensions.UseIdentityColumns(modelBuilder);
 
+            modelBuilder.Entity("AVosDroitsAPI.Models.Entities.Document", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("Category")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("ContentType")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("Description")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("FileName")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("FilePath")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<long>("FileSize")
+                        .HasColumnType("bigint");
+
+                    b.Property<int?>("FolderId")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime>("UploadDate")
+                        .HasColumnType("datetime2");
+
+                    b.Property<int>("UserId")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("FolderId");
+
+                    b.HasIndex("UserId");
+
+                    b.ToTable("Documents");
+                });
+
             modelBuilder.Entity("AVosDroitsAPI.Models.Entities.QuestionOption", b =>
                 {
                     b.Property<int>("Id")
@@ -239,6 +284,58 @@ namespace AVosDroitsAPI.Migrations
                     b.ToTable("Users");
                 });
 
+            modelBuilder.Entity("AVosDroitsAPI.Models.Entities.UserFolder", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTime>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("datetime2")
+                        .HasDefaultValueSql("GETUTCDATE()");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("Path")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<int>("UserId")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UserId");
+
+                    b.ToTable("UserFolders");
+                });
+
+            modelBuilder.Entity("AVosDroitsAPI.Models.Entities.Document", b =>
+                {
+                    b.HasOne("AVosDroitsAPI.Models.Entities.UserFolder", "Folder")
+                        .WithMany("Documents")
+                        .HasForeignKey("FolderId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.HasOne("AVosDroitsAPI.Models.Entities.User", "User")
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .IsRequired();
+
+                    b.Navigation("Folder");
+
+                    b.Navigation("User");
+                });
+
             modelBuilder.Entity("AVosDroitsAPI.Models.Entities.QuestionOption", b =>
                 {
                     b.HasOne("AVosDroitsAPI.Models.Entities.QuestionnaireQuestion", null)
@@ -285,6 +382,17 @@ namespace AVosDroitsAPI.Migrations
                     b.Navigation("Questionnaire");
                 });
 
+            modelBuilder.Entity("AVosDroitsAPI.Models.Entities.UserFolder", b =>
+                {
+                    b.HasOne("AVosDroitsAPI.Models.Entities.User", "User")
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("User");
+                });
+
             modelBuilder.Entity("AVosDroitsAPI.Models.Entities.Questionnaire", b =>
                 {
                     b.Navigation("Sections");
@@ -298,6 +406,11 @@ namespace AVosDroitsAPI.Migrations
             modelBuilder.Entity("AVosDroitsAPI.Models.Entities.QuestionnaireSection", b =>
                 {
                     b.Navigation("Responses");
+                });
+
+            modelBuilder.Entity("AVosDroitsAPI.Models.Entities.UserFolder", b =>
+                {
+                    b.Navigation("Documents");
                 });
 #pragma warning restore 612, 618
         }

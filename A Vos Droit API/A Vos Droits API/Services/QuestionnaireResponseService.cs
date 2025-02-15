@@ -22,11 +22,30 @@ public class QuestionnaireResponseService : IQuestionnaireResponseService
         // Validate that the question exists
         await _questionService.GetQuestionByIdAsync(request.QuestionId);
 
+        // Check if a response already exists for this user, question, and session
+        var existingResponse = await _context.QuestionnaireResponses
+            .FirstOrDefaultAsync(r => 
+                r.UserId == userId && 
+                r.QuestionId == request.QuestionId && 
+                r.SessionId == request.SessionId);
+
+        if (existingResponse != null)
+        {
+            // Update existing response
+            existingResponse.Answer = request.Answer;
+            existingResponse.UpdatedAt = DateTime.UtcNow;
+            await _context.SaveChangesAsync();
+            return MapToDTO(existingResponse);
+        }
+
+        // Create new response if none exists
         var response = new QuestionnaireResponse
         {
             UserId = userId,
             QuestionId = request.QuestionId,
             Answer = request.Answer,
+            SessionId = request.SessionId,
+            Version = 1,
             CreatedAt = DateTime.UtcNow
         };
 

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../../core/theme/design_system.dart';
+import '../../../core/services/api_service.dart';
 import '../menu/menu_screen.dart';
 import '../chatbot/chatbot_screen.dart';
 import '../contact/contact_screen.dart';
@@ -19,6 +20,37 @@ class _MainScreenState extends State<MainScreen> {
     const ChatbotScreen(),
     const ContactScreen(),
   ];
+
+  Future<void> _handleLogout() async {
+    try {
+      // Show loading dialog
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) => const Center(
+          child: CircularProgressIndicator(),
+        ),
+      );
+
+      // Call logout
+      await ApiService.instance.logout();
+
+      // Close loading dialog and navigate to login
+      Navigator.of(context).pop(); // Pop loading dialog
+      Navigator.of(context).pushReplacementNamed('/');
+    } catch (e) {
+      // Close loading dialog
+      Navigator.of(context).pop();
+      
+      // Show error message
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Erreur lors de la déconnexion: ${e.toString()}'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -44,9 +76,32 @@ class _MainScreenState extends State<MainScreen> {
           ),
           IconButton(
             icon: const Icon(Icons.logout, color: Colors.white),
-            onPressed: () {
-              // TODO: Implement logout
-              Navigator.pushReplacementNamed(context, '/');
+            onPressed: () async {
+              // Show confirmation dialog
+              final shouldLogout = await showDialog<bool>(
+                context: context,
+                builder: (context) => AlertDialog(
+                  title: const Text('Déconnexion'),
+                  content: const Text('Êtes-vous sûr de vouloir vous déconnecter ?'),
+                  actions: [
+                    TextButton(
+                      onPressed: () => Navigator.of(context).pop(false),
+                      child: const Text('Annuler'),
+                    ),
+                    TextButton(
+                      onPressed: () => Navigator.of(context).pop(true),
+                      style: TextButton.styleFrom(
+                        foregroundColor: Colors.red,
+                      ),
+                      child: const Text('Déconnexion'),
+                    ),
+                  ],
+                ),
+              );
+
+              if (shouldLogout == true) {
+                await _handleLogout();
+              }
             },
           ),
         ],

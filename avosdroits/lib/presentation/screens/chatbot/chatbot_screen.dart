@@ -5,6 +5,7 @@ import '../../../core/theme/design_system.dart';
 import '../../../core/utils/responsive_helper.dart';
 import '../../../core/services/together_ai_service.dart';
 import '../../../core/providers/auth_provider.dart';
+import '../../../core/config/api_config.dart';
 
 class ChatMessage {
   final String text;
@@ -43,17 +44,30 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
   @override
   void initState() {
     super.initState();
-    _aiService = TogetherAIService(authProvider: context.read<AuthProvider>());
+    _aiService = TogetherAIService.instance;
+    
+    // Add initial system context
+    _aiService.clearHistory();
+    _aiService.addSystemContext(
+      'Vous êtes un assistant juridique spécialisé dans le droit français. '
+      'Votre rôle est d\'aider les utilisateurs à comprendre leurs droits et '
+      'les procédures juridiques. Vos réponses doivent être précises, '
+      'professionnelles et adaptées au contexte français.'
+    );
+    
     _showWelcomeMessage();
   }
 
   void _showWelcomeMessage() {
     _messages.add(
       ChatMessage(
-        text: 'Bonjour! Comment puis-je vous aider aujourd\'hui?',
+        text: 'Bonjour! Je suis votre assistant juridique. Je peux vous aider avec des questions concernant le droit français. '
+              'Pour vous fournir les meilleures réponses possibles, je garderai en mémoire notre conversation et j\'ai accès à vos documents. '
+              'Comment puis-je vous aider aujourd\'hui?',
         isUser: false,
         timestamp: DateTime.now(),
         options: [
+          'Questions sur mes documents',
           'Droit du travail',
           'Droit de la famille',
           'Droit de la santé',
@@ -85,6 +99,16 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
 
       // Handle different options
       switch (option) {
+        case 'Questions sur mes documents':
+          followUpMessage = 'Je peux vous aider à comprendre vos documents. '
+              'Que souhaitez-vous savoir à propos de vos documents?';
+          followUpOptions = [
+            'Résumer mes documents',
+            'Chercher un document spécifique',
+            'Analyser un document',
+            'Retour au menu principal'
+          ];
+          break;
         case 'Droit de la famille':
           followUpMessage = 'Certainement, je peux vous aider avec des informations sur le droit de la famille. '
               'Pouvez-vous préciser votre demande? Avez-vous besoin d\'informations sur le mariage, le divorce, la '
@@ -137,6 +161,7 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
         case 'Retour au menu principal':
           followUpMessage = 'Bien sûr, comment puis-je vous aider?';
           followUpOptions = [
+            'Questions sur mes documents',
             'Droit du travail',
             'Droit de la famille',
             'Droit de la santé',
@@ -145,13 +170,10 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
           ];
           break;
         default:
-          // Handle specific topics
-          followUpMessage = 'Je vous écoute. Quelle est votre question concernant $option?';
-          followUpOptions = ['Retour au menu principal'];
-          
-          // If it's a specific topic, also get AI response
+          // Get AI response for specific topics
           final response = await _aiService.getChatResponse(option);
-          followUpMessage = '$followUpMessage\n\n$response';
+          followUpMessage = response;
+          followUpOptions = ['Retour au menu principal'];
       }
 
       if (mounted) {
@@ -161,11 +183,11 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
             isUser: false,
             timestamp: DateTime.now(),
             options: followUpOptions,
-            showInput: true, // Always show input
+            showInput: true,
           ));
           _isLoading = false;
           _isTyping = false;
-          _showInput = true; // Always show input
+          _showInput = true;
         });
         _scrollToBottom();
       }
@@ -177,6 +199,7 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
             isUser: false,
             timestamp: DateTime.now(),
             options: [
+              'Questions sur mes documents',
               'Droit du travail',
               'Droit de la famille',
               'Droit de la santé',
@@ -270,6 +293,13 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
   }
 
   @override
+  void dispose() {
+    // Don't clear chat history when disposing the screen
+    // _aiService.clearHistory();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     final isMobile = ResponsiveHelper.isMobile(context);
 
@@ -328,6 +358,13 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
                         ),
                     ],
                   ),
+                ),
+                IconButton(
+                  icon: Icon(
+                    Icons.settings,
+                    color: DesignSystem.primaryGreen,
+                  ),
+                  onPressed: () => _showSettingsDialog(context),
                 ),
               ],
             ),
@@ -497,6 +534,83 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
       ),
     );
   }
+
+  void _showSettingsDialog(BuildContext context) {
+    final TextEditingController ipController = TextEditingController(
+      text: ApiConfig.baseUrl.replaceAll(RegExp(r'https?://'), '').split(':')[0],
+    );
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(
+          'Configuration du serveur',
+          style: DesignSystem.headingMedium,
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Adresse IP du serveur',
+              style: DesignSystem.bodyMedium,
+            ),
+            const SizedBox(height: 8),
+            TextField(
+              controller: ipController,
+              decoration: InputDecoration(
+                hintText: 'Ex: 192.168.1.14',
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(8),
+                  borderSide: BorderSide(
+                    color: DesignSystem.primaryGreen,
+                    width: 2,
+                  ),
+                ),
+              ),
+              keyboardType: TextInputType.number,
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: Text(
+              'Annuler',
+              style: TextStyle(color: DesignSystem.mediumText),
+            ),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              final newIp = ipController.text.trim();
+              if (newIp.isNotEmpty) {
+                ApiConfig.updateBaseUrl(newIp);
+                Navigator.pop(context);
+                
+                // Show confirmation
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text('Adresse IP mise à jour: $newIp'),
+                    backgroundColor: DesignSystem.primaryGreen,
+                  ),
+                );
+              }
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: DesignSystem.primaryGreen,
+            ),
+            child: const Text(
+              'Enregistrer',
+              style: TextStyle(color: Colors.white),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 class _ChatBubble extends StatelessWidget {
@@ -561,7 +675,7 @@ class _ChatBubble extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   if (message.isUser)
-                    Text(
+                    SelectableText(
                       message.text,
                       style: DesignSystem.bodyMedium.copyWith(
                         color: Colors.white,
@@ -570,24 +684,26 @@ class _ChatBubble extends StatelessWidget {
                   else
                     MarkdownBody(
                       data: message.text,
+                      selectable: true,
                       styleSheet: MarkdownStyleSheet(
                         p: DesignSystem.bodyMedium.copyWith(
                           color: DesignSystem.darkText,
                         ),
                         h1: DesignSystem.headingLarge.copyWith(
                           color: DesignSystem.darkText,
-                          fontSize: 20,
                         ),
                         h2: DesignSystem.headingMedium.copyWith(
                           color: DesignSystem.darkText,
-                          fontSize: 18,
                         ),
                         h3: DesignSystem.headingSmall.copyWith(
                           color: DesignSystem.darkText,
-                          fontSize: 16,
                         ),
                         listBullet: DesignSystem.bodyMedium.copyWith(
                           color: DesignSystem.darkText,
+                        ),
+                        code: DesignSystem.bodyMedium.copyWith(
+                          color: DesignSystem.darkText,
+                          backgroundColor: Colors.grey[200],
                         ),
                       ),
                     ),

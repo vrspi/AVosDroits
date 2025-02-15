@@ -25,7 +25,7 @@ class _QuestionnaireScreenState extends State<QuestionnaireScreen> {
   @override
   void initState() {
     super.initState();
-    _apiService = ApiService(authProvider: context.read<AuthProvider>());
+    _apiService = ApiService.instance;
     _verifyAuthAndLoadQuestionnaire();
   }
 
@@ -74,29 +74,35 @@ class _QuestionnaireScreenState extends State<QuestionnaireScreen> {
         _error = null;
       });
 
+      print('Fetching questionnaire template...');
       final response = await _apiService.getQuestionnaireTemplate();
       print('Response data: $response');
 
       if (response['data'] == null) {
+        print('No data in response: $response');
         throw Exception('No data received from the server');
       }
 
       final sectionsData = response['data']['sections'];
       if (sectionsData == null) {
+        print('No sections in data: ${response['data']}');
         throw Exception('No sections found in the response');
       }
 
+      print('Parsing sections data: $sectionsData');
       final sections = (sectionsData as List)
           .map((s) => Section.fromJson(s as Map<String, dynamic>))
           .toList()
         ..sort((a, b) => a.order.compareTo(b.order));
 
+      print('Successfully parsed ${sections.length} sections');
       setState(() {
         _sections = sections;
-        _sessionId = DateTime.now().millisecondsSinceEpoch.toString(); // Temporary session ID
+        _sessionId = DateTime.now().millisecondsSinceEpoch.toString();
       });
-    } catch (e) {
+    } catch (e, stackTrace) {
       print('Error loading questionnaire: $e');
+      print('Stack trace: $stackTrace');
       setState(() {
         _error = e.toString();
       });

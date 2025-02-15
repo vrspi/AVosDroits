@@ -64,6 +64,7 @@ builder.Services.AddScoped<IUserProfileService, UserProfileService>();
 builder.Services.AddScoped<IQuestionnaireService, QuestionnaireService>();
 builder.Services.AddScoped<IQuestionnaireQuestionService, QuestionnaireQuestionService>();
 builder.Services.AddScoped<IQuestionnaireResponseService, QuestionnaireResponseService>();
+builder.Services.AddScoped<ILLMService, LLMService>();
 
 // Configure CORS
 builder.Services.AddCors(options =>
