@@ -4,7 +4,7 @@ import 'package:dio/io.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class ApiConfig {
-  static String _baseUrl = 'https://localhost:7076/api'; // Changed to HTTPS
+  static String _baseUrl = 'https://localhost:7076/api'; // Changed to HTTPS and correct port
 
   // Getter for baseUrl
   static String get baseUrl => _baseUrl;

@@ -16,7 +16,27 @@ builder.Services.AddSwaggerGen();
 
 // Configure DbContext
 builder.Services.AddDbContext<ApplicationDbContext>(options =>
-    options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")));
+{
+    var connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
+    options.UseSqlServer(connectionString, sqlOptions =>
+    {
+        sqlOptions.EnableRetryOnFailure(
+            maxRetryCount: 5,
+            maxRetryDelay: TimeSpan.FromSeconds(30),
+            errorNumbersToAdd: null);
+        sqlOptions.CommandTimeout(30);
+        sqlOptions.UseQuerySplittingBehavior(QuerySplittingBehavior.SplitQuery);
+    });
+    
+    if (builder.Environment.IsDevelopment())
+    {
+        options.EnableDetailedErrors();
+        options.EnableSensitiveDataLogging();
+    }
+});
+
+// Add database initialization
+builder.Services.AddHostedService<DatabaseInitializer>();
 
 // Configure Authentication
 builder.Services.AddAuthentication(options =>
@@ -66,13 +86,16 @@ builder.Services.AddScoped<IQuestionnaireQuestionService, QuestionnaireQuestionS
 builder.Services.AddScoped<IQuestionnaireResponseService, QuestionnaireResponseService>();
 builder.Services.AddScoped<ILLMService, LLMService>();
 
-// Configure CORS
+// Add CORS policy
 builder.Services.AddCors(options =>
 {
-    options.AddPolicy("AllowAll", builder =>
-        builder.AllowAnyOrigin()
-               .AllowAnyMethod()
-               .AllowAnyHeader());
+    options.AddDefaultPolicy(policy =>
+    {
+        policy.WithOrigins("http://localhost:8080", "https://localhost:8080")
+              .AllowAnyMethod()
+              .AllowAnyHeader()
+              .AllowCredentials();
+    });
 });
 
 // Add HttpClient factory
@@ -87,12 +110,10 @@ if (app.Environment.IsDevelopment())
     app.UseSwaggerUI();
 }
 
+// Use CORS before auth and routing
+app.UseCors();
+
 app.UseHttpsRedirection();
-
-// Use CORS
-app.UseCors("AllowAll");
-
-// Important: UseAuthentication must come before UseAuthorization
 app.UseAuthentication();
 app.UseAuthorization();
 

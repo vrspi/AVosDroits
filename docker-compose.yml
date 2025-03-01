@@ -1,0 +1,68 @@
+version: '3.8'
+
+services:
+  # SQL Server Database
+  db:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    environment:
+      - ACCEPT_EULA=Y
+      - SA_PASSWORD=YourStrong!Passw0rd
+      - MSSQL_PID=Express
+    ports:
+      - "1433:1433"
+    volumes:
+      - sqlserver_data:/var/opt/mssql
+    networks:
+      - avosdroits_network
+    healthcheck:
+      test: /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P "YourStrong!Passw0rd" -Q "SELECT 1" -b -o /dev/null
+      interval: 10s
+      timeout: 3s
+      retries: 10
+      start_period: 30s
+
+  # Backend API
+  api:
+    build:
+      context: ./A Vos Droit API
+      dockerfile: Dockerfile
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - ASPNETCORE_URLS=https://+:7076;http://+:5005
+      - ASPNETCORE_Kestrel__Certificates__Default__Path=/app/cert/dev-cert.pfx
+      - ASPNETCORE_Kestrel__Certificates__Default__Password=dev-cert-password
+      - ConnectionStrings__DefaultConnection=Server=db,1433;Database=AVosDroitsDb;User Id=sa;Password=YourStrong!Passw0rd;TrustServerCertificate=True;MultipleActiveResultSets=true;ConnectRetryCount=5;ConnectRetryInterval=10;Connection Timeout=30;Command Timeout=30;Max Pool Size=100;Pooling=true;Load Balance Timeout=30
+    ports:
+      - "7076:7076"
+      - "5005:5005"
+    volumes:
+      - api_data:/app/Uploads
+      - ${USERPROFILE}/.aspnet/https:/app/cert:ro
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - avosdroits_network
+    restart: unless-stopped
+
+  # Frontend Flutter Web
+  frontend:
+    build:
+      context: ./avosdroits
+      dockerfile: Dockerfile
+    ports:
+      - "8080:80"
+    environment:
+      - API_URL=https://localhost:7076
+    depends_on:
+      - api
+    networks:
+      - avosdroits_network
+
+networks:
+  avosdroits_network:
+    driver: bridge
+
+volumes:
+  sqlserver_data:
+  api_data: 

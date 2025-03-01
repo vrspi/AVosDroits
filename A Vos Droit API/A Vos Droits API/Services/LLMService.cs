@@ -47,7 +47,7 @@ namespace AVosDroitsAPI.Services
 
                 var requestBody = JsonSerializer.Serialize(new
                 {
-                    model = "gpt-4o",
+                    model = "gpt-4",
                     messages = messages,
                     temperature = 0.7,
                     max_tokens = 1000
@@ -58,17 +58,26 @@ namespace AVosDroitsAPI.Services
 
                 if (!response.IsSuccessStatusCode)
                 {
-                    _logger.LogError($"LLM API error: {response.StatusCode} - {await response.Content.ReadAsStringAsync()}");
-                    throw new Exception("Failed to get response from LLM service");
+                    var errorContent = await response.Content.ReadAsStringAsync();
+                    _logger.LogError($"LLM API error: {response.StatusCode} - {errorContent}");
+                    throw new Exception($"OpenAI API error: {response.StatusCode} - {errorContent}");
                 }
 
                 var responseContent = await response.Content.ReadAsStringAsync();
+                _logger.LogInformation($"LLM API response: {responseContent}");
+                
                 var responseData = JsonSerializer.Deserialize<JsonElement>(responseContent);
                 
-                return responseData.GetProperty("choices")[0]
-                    .GetProperty("message")
-                    .GetProperty("content")
-                    .GetString() ?? "Désolé, je n'ai pas pu générer une réponse.";
+                if (!responseData.TryGetProperty("choices", out var choices) || 
+                    choices.GetArrayLength() == 0 ||
+                    !choices[0].TryGetProperty("message", out var messageObj) ||
+                    !messageObj.TryGetProperty("content", out var content))
+                {
+                    _logger.LogError($"Invalid response format from LLM API: {responseContent}");
+                    throw new Exception("Invalid response format from LLM service");
+                }
+
+                return content.GetString() ?? "Désolé, je n'ai pas pu générer une réponse.";
             }
             catch (Exception ex)
             {
