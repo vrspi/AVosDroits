@@ -37,9 +37,15 @@ namespace AVosDroitsAPI.Services
                 };
 
                 // Add chat history
-                foreach (var msg in history)
+                if (history != null)
                 {
-                    messages.Add(new { role = msg.Role.ToLower(), content = msg.Content });
+                    foreach (var msg in history)
+                    {
+                        if (!string.IsNullOrEmpty(msg.Role) && !string.IsNullOrEmpty(msg.Content))
+                        {
+                            messages.Add(new { role = msg.Role.ToLower(), content = msg.Content });
+                        }
+                    }
                 }
 
                 // Add current message
@@ -53,19 +59,20 @@ namespace AVosDroitsAPI.Services
                     max_tokens = 1000
                 });
 
+                _logger.LogInformation($"Sending request to OpenAI: {requestBody}");
+
                 var response = await _httpClient.PostAsync(_apiUrl,
                     new StringContent(requestBody, Encoding.UTF8, "application/json"));
 
+                var responseContent = await response.Content.ReadAsStringAsync();
+                _logger.LogInformation($"OpenAI API response: {responseContent}");
+
                 if (!response.IsSuccessStatusCode)
                 {
-                    var errorContent = await response.Content.ReadAsStringAsync();
-                    _logger.LogError($"LLM API error: {response.StatusCode} - {errorContent}");
-                    throw new Exception($"OpenAI API error: {response.StatusCode} - {errorContent}");
+                    _logger.LogError($"OpenAI API error: {response.StatusCode} - {responseContent}");
+                    throw new Exception($"OpenAI API error: {response.StatusCode}");
                 }
 
-                var responseContent = await response.Content.ReadAsStringAsync();
-                _logger.LogInformation($"LLM API response: {responseContent}");
-                
                 var responseData = JsonSerializer.Deserialize<JsonElement>(responseContent);
                 
                 if (!responseData.TryGetProperty("choices", out var choices) || 
@@ -73,15 +80,39 @@ namespace AVosDroitsAPI.Services
                     !choices[0].TryGetProperty("message", out var messageObj) ||
                     !messageObj.TryGetProperty("content", out var content))
                 {
-                    _logger.LogError($"Invalid response format from LLM API: {responseContent}");
-                    throw new Exception("Invalid response format from LLM service");
+                    _logger.LogError($"Invalid response format from OpenAI API: {responseContent}");
+                    throw new Exception("Invalid response format from OpenAI API");
                 }
 
-                return content.GetString() ?? "Désolé, je n'ai pas pu générer une réponse.";
+                var aiResponse = content.GetString();
+                if (string.IsNullOrEmpty(aiResponse))
+                {
+                    throw new Exception("Empty response from OpenAI API");
+                }
+
+                _logger.LogInformation($"Processed AI response: {aiResponse}");
+
+                // Try to parse the response as JSON first
+                try
+                {
+                    var jsonResponse = JsonSerializer.Deserialize<JsonElement>(aiResponse);
+                    return aiResponse;
+                }
+                catch (JsonException)
+                {
+                    // If not valid JSON, create a simple JSON response
+                    return JsonSerializer.Serialize(new
+                    {
+                        message = aiResponse,
+                        options = new List<object>(),
+                        context = string.Empty,
+                        expectingChoice = false
+                    });
+                }
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error getting chat response from LLM");
+                _logger.LogError(ex, "Error getting chat response from OpenAI");
                 throw;
             }
         }

@@ -8,6 +8,9 @@ import 'package:image_picker/image_picker.dart';
 import '../../../core/models/document.dart';
 import '../../../core/services/document_service.dart';
 import '../../../core/theme/design_system.dart';
+import 'package:flutter/foundation.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'dart:html' if (dart.library.html) 'dart:html' as html;
 
 class ResponsiveHelper {
   static bool isMobile(BuildContext context) {
@@ -131,121 +134,219 @@ class _DocumentScreenState extends State<DocumentScreen> {
 
   Future<void> _uploadDocument() async {
     try {
-      // Show upload options dialog
-      final source = await showDialog<String>(
-        context: context,
-        builder: (context) => AlertDialog(
-          title: const Text('Choisir la source'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              ListTile(
-                leading: const Icon(Icons.folder),
-                title: const Text('Choisir un fichier'),
-                onTap: () => Navigator.pop(context, 'file'),
-              ),
-              ListTile(
-                leading: const Icon(Icons.camera_alt),
-                title: const Text('Prendre une photo'),
-                onTap: () => Navigator.pop(context, 'camera'),
-              ),
-            ],
-          ),
-        ),
-      );
-
-      if (source == null) return;
-
-      late PlatformFile file;
-      String originalFileName = '';
-
-      if (source == 'camera') {
-        final ImagePicker picker = ImagePicker();
-        final XFile? image = await picker.pickImage(
-          source: ImageSource.camera,
-          imageQuality: 85,
-          preferredCameraDevice: CameraDevice.rear,
-        );
-
-        if (image == null) return;
-
-        originalFileName = 'photo_${DateTime.now().millisecondsSinceEpoch}.jpg';
-        // Convert XFile to PlatformFile
-        file = PlatformFile(
-          name: originalFileName,
-          size: await image.length(),
-          path: image.path,
+      FilePickerResult? result;
+      if (kIsWeb) {
+        // For web, only allow file selection with withData enabled
+        result = await FilePicker.platform.pickFiles(
+          type: FileType.custom,
+          allowedExtensions: ['jpg', 'jpeg', 'png', 'pdf', 'doc', 'docx', 'xls', 'xlsx'],
+          withData: true, // Important for web to get the bytes
+          allowMultiple: false,
         );
       } else {
-        final result = await FilePicker.platform.pickFiles();
-        if (result == null) return;
-        file = result.files.first;
-        originalFileName = file.name;
+        // Show upload options dialog for mobile
+        final source = await showDialog<String>(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: const Text('Choisir la source'),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                ListTile(
+                  leading: const Icon(Icons.folder),
+                  title: const Text('Choisir un fichier'),
+                  onTap: () => Navigator.pop(context, 'file'),
+                ),
+                ListTile(
+                  leading: const Icon(Icons.camera_alt),
+                  title: const Text('Prendre une photo'),
+                  onTap: () => Navigator.pop(context, 'camera'),
+                ),
+              ],
+            ),
+          ),
+        );
+
+        if (source == null) return;
+
+        if (source == 'camera') {
+          final ImagePicker picker = ImagePicker();
+          final XFile? image = await picker.pickImage(
+            source: ImageSource.camera,
+            imageQuality: 85,
+            preferredCameraDevice: CameraDevice.rear,
+          );
+
+          if (image == null) return;
+
+          final bytes = await image.readAsBytes();
+          result = FilePickerResult([
+            PlatformFile(
+              name: 'photo_${DateTime.now().millisecondsSinceEpoch}.jpg',
+              size: bytes.length,
+              bytes: bytes,
+            ),
+          ]);
+        } else {
+          result = await FilePicker.platform.pickFiles(
+            type: FileType.custom,
+            allowedExtensions: ['jpg', 'jpeg', 'png', 'pdf', 'doc', 'docx', 'xls', 'xlsx'],
+          );
+        }
       }
-        
+
+      if (result == null || result.files.isEmpty) return;
+      final file = result.files.first;
+
+      // Ensure we have either bytes (for web) or path (for mobile)
+      if (kIsWeb && file.bytes == null) {
+        throw Exception('No file data available');
+      } else if (!kIsWeb && file.path == null) {
+        throw Exception('No file path available');
+      }
+
       // Show dialog for description, category, and folder selection
       final data = await showDialog<Map<String, dynamic>>(
         context: context,
-        builder: (context) => _UploadDialog(folders: _folders),
+        builder: (context) => _UploadDialog(
+          folders: _folders,
+          fileName: file.name,
+        ),
       );
 
       if (data != null) {
+        setState(() => _isLoading = true);
+
         // Create a new PlatformFile with the custom name if provided
+        PlatformFile uploadFile;
         if (data['fileName'] != null && data['fileName'].isNotEmpty) {
-          // Keep the original file extension
-          final extension = originalFileName.split('.').last;
-          final newFileName = data['fileName'].endsWith('.$extension') 
-              ? data['fileName'] 
-              : '${data['fileName']}.$extension';
+          // Extract the extension from the original filename, preserving its exact format
+          final lastDotIndex = file.name.lastIndexOf('.');
+          final originalExtension = lastDotIndex >= 0 ? file.name.substring(lastDotIndex) : '';
           
-          file = PlatformFile(
-            name: newFileName,
-            size: file.size,
-            path: file.path,
-          );
+          // Add the original extension to the new filename
+          final newFileName = data['fileName'] + originalExtension;
+          
+          if (kIsWeb) {
+            uploadFile = PlatformFile(
+              name: newFileName,
+              size: file.size,
+              bytes: file.bytes,
+            );
+          } else {
+            uploadFile = PlatformFile(
+              name: newFileName,
+              size: file.size,
+              path: file.path,
+            );
+          }
+        } else {
+          uploadFile = file;
         }
 
-        setState(() => _isLoading = true);
-        await _documentService.uploadDocument(
-          file,
-          data['description']!,
-          data['category']!,
-          folderId: data['folderId'],
-        );
-        await _loadData();
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Document téléchargé avec succès')),
-        );
+        try {
+          await _documentService.uploadDocument(
+            uploadFile,
+            data['description']!,
+            data['category']!,
+            folderId: data['folderId'],
+          );
+
+          await _loadData();
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('Document téléchargé avec succès')),
+            );
+          }
+        } catch (e) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text('Erreur lors du téléchargement: $e')),
+            );
+          }
+          rethrow;
+        }
       }
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Erreur lors du téléchargement: $e'),
-          backgroundColor: Colors.red,
-        ),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Erreur lors du téléchargement: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
     } finally {
-      setState(() => _isLoading = false);
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
     }
   }
 
   Future<void> _downloadDocument(Document document) async {
+    setState(() => _isLoading = true);
     try {
-      final directory = await getApplicationDocumentsDirectory();
-      final savePath = '${directory.path}/${document.fileName}';
-      
-      setState(() => _isLoading = true);
-      await _documentService.downloadDocument(document.id, savePath);
-      
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Document downloaded to: $savePath')),
-      );
+      if (kIsWeb) {
+        // For web, we'll use the document URL directly with auth headers
+        final url = await _documentService.getDocumentUrl(document.id);
+        final prefs = await SharedPreferences.getInstance();
+        final token = prefs.getString('token');
+        
+        // Create an anchor element with auth header
+        final anchor = html.AnchorElement()
+          ..href = url
+          ..setAttribute('download', document.fileName)
+          ..style.display = 'none'
+          ..setAttribute('data-auth', 'Bearer $token');  // This will be used by the browser
+
+        // Add custom headers using XMLHttpRequest
+        final xhr = html.HttpRequest();
+        xhr.open('GET', url);
+        xhr.setRequestHeader('Authorization', 'Bearer $token');
+        xhr.responseType = 'blob';
+        
+        xhr.onLoad.listen((event) {
+          final blob = html.Blob([xhr.response]);
+          final url = html.Url.createObjectUrlFromBlob(blob);
+          
+          final anchor = html.AnchorElement()
+            ..href = url
+            ..setAttribute('download', document.fileName)
+            ..style.display = 'none';
+            
+          html.document.body?.children.add(anchor);
+          anchor.click();
+          html.document.body?.children.remove(anchor);
+          html.Url.revokeObjectUrl(url);
+        });
+        
+        xhr.onError.listen((event) {
+          throw Exception('Failed to download file');
+        });
+        
+        xhr.send();
+      } else {
+        // For mobile platforms
+        final directory = await getApplicationDocumentsDirectory();
+        final savePath = '${directory.path}/${document.fileName}';
+        await _documentService.downloadDocument(document.id, savePath);
+        
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Document downloaded to: $savePath')),
+          );
+        }
+      }
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error downloading document: $e')),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error downloading document: $e')),
+        );
+      }
     } finally {
-      setState(() => _isLoading = false);
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
     }
   }
 
@@ -598,8 +699,9 @@ class _CreateFolderDialogState extends State<_CreateFolderDialog> {
 
 class _UploadDialog extends StatefulWidget {
   final List<UserFolder> folders;
+  final String fileName;
 
-  const _UploadDialog({required this.folders});
+  const _UploadDialog({required this.folders, required this.fileName});
 
   @override
   _UploadDialogState createState() => _UploadDialogState();
@@ -749,37 +851,58 @@ class DocumentViewer extends StatelessWidget {
     required this.mimeType,
   }) : super(key: key);
 
+  Future<Map<String, String>> _getAuthHeaders() async {
+    final prefs = await SharedPreferences.getInstance();
+    final token = prefs.getString('token');
+    return {
+      'Authorization': 'Bearer $token',
+    };
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text('Document Viewer'),
+        title: const Text('Document Viewer'),
         actions: [
           IconButton(
-            icon: Icon(Icons.download),
+            icon: const Icon(Icons.download),
             onPressed: () {
               Navigator.pop(context, true); // Return true to trigger download
             },
           ),
         ],
       ),
-      body: _buildViewer(),
-    );
-  }
+      body: FutureBuilder<Map<String, String>>(
+        future: _getAuthHeaders(),
+        builder: (context, snapshot) {
+          if (!snapshot.hasData) {
+            return const Center(child: CircularProgressIndicator());
+          }
 
-  Widget _buildViewer() {
-    if (mimeType.startsWith('image/')) {
-      return PhotoView(
-        imageProvider: NetworkImage(url),
-        minScale: PhotoViewComputedScale.contained,
-        maxScale: PhotoViewComputedScale.covered * 2,
-      );
-    } else if (mimeType == 'application/pdf') {
-      return SfPdfViewer.network(url);
-    } else {
-      return Center(
-        child: Text('This file type cannot be previewed'),
-      );
-    }
+          final headers = snapshot.data!;
+          
+          if (mimeType.startsWith('image/')) {
+            return PhotoView(
+              imageProvider: NetworkImage(
+                url,
+                headers: headers,
+              ),
+              minScale: PhotoViewComputedScale.contained,
+              maxScale: PhotoViewComputedScale.covered * 2,
+            );
+          } else if (mimeType == 'application/pdf') {
+            return SfPdfViewer.network(
+              url,
+              headers: headers,
+            );
+          } else {
+            return const Center(
+              child: Text('This file type cannot be previewed'),
+            );
+          }
+        },
+      ),
+    );
   }
 } 

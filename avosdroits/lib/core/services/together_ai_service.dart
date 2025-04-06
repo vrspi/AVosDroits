@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
+import 'dart:developer' as developer;
 import '../config/api_config.dart';
 import '../providers/auth_provider.dart';
 import 'api_service.dart';
@@ -29,6 +30,7 @@ class TogetherAIService {
   static TogetherAIService? _instance;
   final List<ChatMessage> _messageHistory = [];
   String? _systemContext;
+  Map<String, dynamic>? _lastApiResponseData;
 
   TogetherAIService._({required AuthProvider authProvider}) : _authProvider = authProvider;
 
@@ -67,8 +69,15 @@ class TogetherAIService {
     }
   }
 
+  // Get the last API response data
+  Map<String, dynamic>? getLastApiResponseData() {
+    return _lastApiResponseData;
+  }
+
   Future<String> getChatResponse(String userMessage) async {
     try {
+      developer.log('TOGETHER_AI: Getting chat response for message: $userMessage', name: 'TogetherAIService');
+
       // Add user message to history
       _messageHistory.add(ChatMessage(
         role: 'user',
@@ -76,12 +85,13 @@ class TogetherAIService {
         timestamp: DateTime.now(),
       ));
 
+      developer.log('TOGETHER_AI: Sending API request with history size: ${_messageHistory.length}', name: 'TogetherAIService');
+      
       final response = await ApiService.instance.dio.post(
         '/Chatbot/chat',
         data: {
           'message': userMessage,
           'history': _messageHistory.map((msg) => msg.toJson()).toList(),
-          'systemContext': _systemContext,
         },
         options: Options(
           validateStatus: (status) => status != null && status < 500,
@@ -90,17 +100,53 @@ class TogetherAIService {
         ),
       );
 
+      developer.log('TOGETHER_AI: Received response with status: ${response.statusCode}', name: 'TogetherAIService');
+      
       if (response.statusCode == 200 && response.data['success'] == true) {
         final data = response.data;
-        final assistantMessage = data['response'] as String;
+        developer.log('TOGETHER_AI: Response data: $data', name: 'TogetherAIService');
         
-        // Update system context if provided
-        if (data['systemContext'] != null) {
-          _systemContext = data['systemContext'] as String;
-          print('Updated system context: $_systemContext'); // Debug log
+        // Store the full API response data for later use
+        _lastApiResponseData = Map<String, dynamic>.from(data);
+        
+        final assistantMessage = data['response']['message'] as String;
+        
+        // Check for options in the response
+        List<dynamic>? options;
+        try {
+          if (data['response'].containsKey('options')) {
+            options = data['response']['options'];
+            developer.log('TOGETHER_AI: Found options in response: $options', name: 'TogetherAIService');
+            
+            // Append options to the message for the chatbot to extract
+            if (options != null && options.isNotEmpty) {
+              final optionsText = options.map((opt) => "- ${opt.toString()}").join("\n");
+              developer.log('TOGETHER_AI: Options text: $optionsText', name: 'TogetherAIService');
+              
+              // Add options marker and list to the end of the message
+              String messageWithOptions = assistantMessage;
+              if (!messageWithOptions.contains("OPTIONS:")) {
+                messageWithOptions += "\n\nOPTIONS:\n$optionsText";
+              }
+              
+              // Add assistant response to history with options
+              _messageHistory.add(ChatMessage(
+                role: 'assistant',
+                content: messageWithOptions,
+                timestamp: DateTime.now(),
+              ));
+              
+              print('Full response message with options: $messageWithOptions'); // Debug log
+              return messageWithOptions;
+            }
+          } else {
+            developer.log('TOGETHER_AI: No options found in response', name: 'TogetherAIService');
+          }
+        } catch (e) {
+          developer.log('TOGETHER_AI: Error processing options: $e', name: 'TogetherAIService');
         }
-
-        // Add assistant response to history
+        
+        // Add assistant response to history (without options if not found or error)
         _messageHistory.add(ChatMessage(
           role: 'assistant',
           content: assistantMessage,
@@ -110,16 +156,19 @@ class TogetherAIService {
         print('Full response message: $assistantMessage'); // Debug log
         return assistantMessage;
       } else {
+        developer.log('TOGETHER_AI: Error response: ${response.data}', name: 'TogetherAIService');
         print('Error response: ${response.data}');
         throw Exception('Erreur de l\'API: ${response.statusCode} - ${response.data}');
       }
     } on DioException catch (e) {
+      developer.log('TOGETHER_AI: DioException caught: $e', name: 'TogetherAIService');
       print('DioException caught: $e');
       if (e.type == DioExceptionType.connectionError) {
         throw Exception(_getNetworkErrorMessage());
       }
       throw Exception('Une erreur réseau s\'est produite: ${e.message}');
     } catch (e) {
+      developer.log('TOGETHER_AI: Exception caught: $e', name: 'TogetherAIService');
       print('Exception caught: $e');
       throw Exception('Une erreur inattendue s\'est produite: $e');
     }

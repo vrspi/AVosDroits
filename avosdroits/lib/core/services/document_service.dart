@@ -3,6 +3,7 @@ import 'package:dio/dio.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:http_parser/http_parser.dart';
 import '../models/document.dart';
 import '../config/api_config.dart';
 import 'api_service.dart';
@@ -68,10 +69,15 @@ class DocumentService {
       
       if (kIsWeb) {
         // Handle web upload
+        if (file.bytes == null) {
+          throw Exception('File bytes are null');
+        }
+        
         formData = FormData.fromMap({
           'file': MultipartFile.fromBytes(
             file.bytes!,
             filename: file.name,
+            contentType: _getContentType(file.name),
           ),
           'description': description,
           'category': category,
@@ -79,10 +85,15 @@ class DocumentService {
         });
       } else {
         // Handle mobile upload
+        if (file.path == null) {
+          throw Exception('File path is null');
+        }
+        
         formData = FormData.fromMap({
           'file': await MultipartFile.fromFile(
             file.path!,
             filename: file.name,
+            contentType: _getContentType(file.name),
           ),
           'description': description,
           'category': category,
@@ -93,15 +104,43 @@ class DocumentService {
       final response = await _dio.post(
         '/Document/upload',
         data: formData,
+        options: Options(
+          headers: {
+            'Content-Type': 'multipart/form-data',
+          },
+        ),
       );
 
       if (response.data['success']) {
         return Document.fromJson(response.data['document']);
       } else {
-        throw Exception(response.data['message']);
+        throw Exception(response.data['message'] ?? 'Upload failed');
       }
     } catch (e) {
       throw Exception('Failed to upload document: $e');
+    }
+  }
+
+  MediaType? _getContentType(String fileName) {
+    final extension = fileName.split('.').last.toLowerCase();
+    switch (extension) {
+      case 'pdf':
+        return MediaType('application', 'pdf');
+      case 'jpg':
+      case 'jpeg':
+        return MediaType('image', 'jpeg');
+      case 'png':
+        return MediaType('image', 'png');
+      case 'doc':
+        return MediaType('application', 'msword');
+      case 'docx':
+        return MediaType('application', 'vnd.openxmlformats-officedocument.wordprocessingml.document');
+      case 'xls':
+        return MediaType('application', 'vnd.ms-excel');
+      case 'xlsx':
+        return MediaType('application', 'vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+      default:
+        return null;
     }
   }
 

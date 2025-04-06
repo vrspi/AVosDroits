@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using System.Security.Claims;
+using System.Text.Json;
 using AVosDroitsAPI.Data;
 using AVosDroitsAPI.Models.DTOs;
 using AVosDroitsAPI.Services;
@@ -32,25 +33,43 @@ namespace AVosDroitsAPI.Controllers
         {
             try
             {
+                if (request == null || string.IsNullOrEmpty(request.Message))
+                {
+                    _logger.LogWarning("Invalid chat request: Request or message is null");
+                    return BadRequest(new { success = false, message = "Invalid request format" });
+                }
+
                 var userId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? "0");
                 if (userId == 0)
-                    return Unauthorized();
+                {
+                    _logger.LogWarning("Unauthorized chat request: User ID not found in claims");
+                    return Unauthorized(new { success = false, message = "User not authenticated" });
+                }
 
                 // Get user's documents for context
-                var documents = await _context.Documents
-                    .Where(d => d.UserId == userId)
-                    .Select(d => new
-                    {
-                        d.FileName,
-                        d.Description,
-                        d.Category,
-                        FolderName = d.Folder.Name
-                    })
-                    .ToListAsync();
+                var documents = new List<object>();
+                try
+                {
+                    var userDocs = await _context.Documents
+                        .Where(d => d.UserId == userId)
+                        .Select(d => new
+                        {
+                            d.FileName,
+                            d.Description,
+                            d.Category,
+                            FolderName = d.Folder.Name
+                        })
+                        .ToListAsync();
+                    documents.AddRange(userDocs);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Error retrieving user documents for chat context");
+                }
 
                 // Create document context
                 var documentContext = "Documents de l'utilisateur:\n";
-                foreach (var doc in documents)
+                foreach (dynamic doc in documents)
                 {
                     documentContext += $"- {doc.FileName}";
                     if (!string.IsNullOrEmpty(doc.Description))
@@ -63,45 +82,92 @@ namespace AVosDroitsAPI.Controllers
                 }
 
                 // Process the chat message with document context
-                var systemContext = @"Vous êtes un assistant juridique ultra-concis spécialisé dans le droit français. 
-                Format de réponse:
-                1. Une phrase de réponse directe (maximum 15 mots)
-                2. Si nécessaire, une phrase d'action concrète à entreprendre
-                3. Si besoin, proposer une question de suivi
+                var systemContext = @"Vous êtes un assistant juridique spécialisé dans le droit français.
+                Format de réponse JSON attendu:
+                {
+                    ""message"": ""Message principal de réponse"",
+                    ""options"": [
+                        {
+                            ""id"": ""1"",
+                            ""text"": ""Option 1"",
+                            ""icon"": ""emoji ou icône"",
+                            ""description"": ""Description détaillée""
+                        }
+                    ],
+                    ""context"": ""Contexte actuel de la conversation"",
+                    ""expectingChoice"": true/false
+                }
 
-                Règles strictes:
-                - Jamais plus de 3 phrases au total
-                - Pas d'introduction ni de formules de politesse
-                - Uniquement des informations essentielles et actionnables
-                - Utiliser des verbes d'action
-                - Pour les procédures: donner uniquement la première action à faire
-                - Pour les documents: répondre uniquement avec les informations visibles dans le contexte
-
-                Questions de suivi suggérées:
-                - Pour plus de détails sur une procédure: 'Quelle est l'étape suivante?'
-                - Pour approfondir un sujet: 'Voulez-vous plus d'informations sur [aspect spécifique]?'
+                Règles:
+                1. Toujours structurer la réponse comme un dialogue avec des options
+                2. Limiter les options à 6 choix maximum
+                3. Utiliser des émojis pertinents pour les icônes
+                4. Inclure une description courte pour chaque option
+                5. Garder le contexte de la conversation
+                6. Indiquer si une réponse est attendue (expectingChoice)
 
                 Contexte des documents de l'utilisateur:
                 " + documentContext;
 
-                // Get response from LLM service
-                var response = await _llmService.GetChatResponseAsync(
-                    request.Message,
-                    systemContext,
-                    request.History ?? new List<ChatMessageDTO>()
-                );
-
-                return Ok(new
+                string llmResponse;
+                try
                 {
-                    success = true,
-                    response = response,
-                    systemContext = systemContext
-                });
+                    // Get response from LLM service
+                    llmResponse = await _llmService.GetChatResponseAsync(
+                        request.Message,
+                        systemContext,
+                        request.History ?? new List<ChatMessageDTO>()
+                    );
+
+                    if (string.IsNullOrEmpty(llmResponse))
+                    {
+                        _logger.LogError("LLM service returned empty response");
+                        return StatusCode(500, new { success = false, message = "Empty response from language model" });
+                    }
+
+                    // Parse the JSON response
+                    try
+                    {
+                        _logger.LogInformation($"Attempting to parse response: {llmResponse}");
+                        var chatResponse = JsonSerializer.Deserialize<ChatResponseDTO>(llmResponse, new JsonSerializerOptions
+                        {
+                            PropertyNameCaseInsensitive = true
+                        });
+
+                        if (chatResponse == null)
+                        {
+                            _logger.LogError("Failed to deserialize LLM response to ChatResponseDTO");
+                            return StatusCode(500, new { success = false, message = "Invalid response format from language model" });
+                        }
+
+                        // Ensure Options is not null
+                        chatResponse.Options ??= new List<ChatOptionDTO>();
+
+                        return Ok(new { success = true, response = chatResponse });
+                    }
+                    catch (JsonException ex)
+                    {
+                        _logger.LogError(ex, "Error parsing LLM response as JSON. Response: {Response}", llmResponse);
+                        // Create a simple response for non-JSON responses
+                        var simpleResponse = new ChatResponseDTO
+                        {
+                            Message = llmResponse,
+                            ExpectingChoice = false,
+                            Options = new List<ChatOptionDTO>()
+                        };
+                        return Ok(new { success = true, response = simpleResponse });
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Error getting response from LLM service");
+                    return StatusCode(500, new { success = false, message = "Error processing chat request with language model" });
+                }
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error processing chat request");
-                return StatusCode(500, new { success = false, message = "Internal server error" });
+                _logger.LogError(ex, "Unhandled error in chat request");
+                return StatusCode(500, new { success = false, message = "Une erreur inattendue s'est produite. Veuillez réessayer." });
             }
         }
     }
